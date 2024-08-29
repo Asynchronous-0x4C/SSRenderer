@@ -1,0 +1,265 @@
+ArrayList<Float>ssbo_vertices=new ArrayList<>();
+ArrayList<Float>ssbo_materials=new ArrayList<>();
+
+HashMap<String,Material>material_set=new HashMap<>();
+ArrayList<Material>materials=new ArrayList<>();
+
+class RayTracer extends Renderer{
+  FrameBuffer main_pass;
+  FloatTexture main_texture;
+  
+  FilterProgram raytrace;
+  FloatTexture hdri;
+  Buffer tris;
+  Buffer mats;
+  Buffer bvh;
+  Buffer rnd;
+  
+  FilterProgram accumulate;
+  Buffer accum;
+  
+  Matrix4d mvp;
+  Matrix4d p_mvp;
+  
+  int num_iterations=1;
+  
+  void initFrameBuffer(){
+    main_pass=new FrameBuffer();
+    main_pass.bind();
+    
+    main_texture=new FloatTexture();
+    main_texture.load();
+    main_texture.set_filtering(GL4.GL_NEAREST);
+    main_texture.set_wrapping(GL4.GL_CLAMP_TO_EDGE);
+    
+    main_pass.load(main_texture);
+    main_pass.unbind();
+    
+    hdri=new FloatTexture();
+    hdri.load(sketchPath()+"/data/bg/8k/8k_2.hdr");
+    
+    tris=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
+    mats=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
+    bvh=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
+    rnd=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
+    int[] r=new int[width*height];
+    for(int i=0;i<r.length;i++){
+      r[i]=round(random(-Integer.MIN_VALUE,Integer.MAX_VALUE));
+    }
+    rnd.set_data(IntBuffer.wrap(r),GL4.GL_STATIC_DRAW);
+    
+    accum=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
+    float[] c=new float[width*height*4];
+    accum.set_data(FloatBuffer.wrap(c),GL4.GL_STATIC_DRAW);
+  }
+  
+  void initProgram(){
+    raytrace=new FilterProgram("./data/PathTracing.fs","./data/PathTracingVert.vs");
+    
+    accumulate=new FilterProgram("./data/Accum.fs","./data/FilterVert.vs");
+  }
+  
+  void reloadVertices(){
+    ssbo_vertices.clear();
+    level.putSSBOData();
+    float[] v=new float[ssbo_vertices.size()];
+    for(int i=0;i<v.length;i++){
+      v[i]=ssbo_vertices.get(i);
+    }
+    tris.set_data(FloatBuffer.wrap(v),GL4.GL_DYNAMIC_DRAW);
+    float[] ssbo_bvh=constructBVH(v);
+    bvh.set_data(FloatBuffer.wrap(ssbo_bvh),GL4.GL_DYNAMIC_DRAW);
+    println("vertices are loaded.");
+  }
+  
+  void reloadMaterials(){
+    ssbo_materials.clear();
+    for(int i=0,n=materials.size();i<n;++i){
+      Material m=materials.get(i);
+      ssbo_materials.add(m.albedo.get().x);
+      ssbo_materials.add(m.albedo.get().y);
+      ssbo_materials.add(m.albedo.get().z);
+      ssbo_materials.add(m.roughness.get());
+      ssbo_materials.add(m.specular.get().x);
+      ssbo_materials.add(m.specular.get().y);
+      ssbo_materials.add(m.specular.get().z);
+      ssbo_materials.add(m.metalness.get());
+      ssbo_materials.add(m.emission.get().x);
+      ssbo_materials.add(m.emission.get().y);
+      ssbo_materials.add(m.emission.get().z);
+      ssbo_materials.add(m.transmission.get());
+      ssbo_materials.add(m.IOR.get());
+      ssbo_materials.add(-1.0);
+      ssbo_materials.add(m.anisotropy_s.get());
+      ssbo_materials.add(m.anisotropy_r.get());
+    }
+    float[] d=new float[ssbo_materials.size()];
+    for(int i=0;i<d.length;++i){
+      d[i]=ssbo_materials.get(i);
+    }
+    mats.set_data(FloatBuffer.wrap(d),GL4.GL_DYNAMIC_DRAW);
+  }
+  
+  void display(){
+    main_pass();
+    if(!mvp.equals(p_mvp,1e-5)){
+      num_iterations=1;
+    }else{
+      num_iterations++;
+    }
+    accum_pass();
+    p_mvp=new Matrix4d(mvp);
+  }
+  
+  void main_pass(){
+    main_pass.bind();
+    gl.glViewport(0,0,width,height);
+    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
+    gl.glClearColor(0,0,0,1);
+    gl.glDisable(GL4.GL_DEPTH_TEST);
+    mvp=new Matrix4d().set(player.camera.proj).mul(player.camera.view).invert();
+    raytrace.program.set_f32m4("mvp",new Matrix4f(mvp));
+    raytrace.program.set_f32v2("resolution",width,height);
+    hdri.activate(GL4.GL_TEXTURE0);
+    raytrace.program.set_i32("hdri",0);
+    raytrace.program.apply();
+    raytrace.vertex_array.bind();
+    tris.bindBase(0);
+    mats.bindBase(1);
+    bvh.bindBase(2);
+    rnd.bindBase(3);
+    gl.glDrawElements(GL4.GL_TRIANGLES, raytrace.indices.length, GL4.GL_UNSIGNED_INT, 0);
+    raytrace.vertex_array.unbind();
+    main_pass.unbind();
+  }
+  
+  void accum_pass(){
+    gl.glViewport(0,0,width,height);
+    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
+    gl.glClearColor(0,0,0,1);
+    gl.glDisable(GL4.GL_DEPTH_TEST);
+    accumulate.program.set_f32v2("resolution",width,height);
+    accumulate.program.set_i32("num_iterations",num_iterations);
+    accumulate.program.set_i32("current",0);
+    main_texture.activate(GL4.GL_TEXTURE0);
+    accumulate.program.apply();
+    accumulate.vertex_array.bind();
+    accum.bindBase(8);
+    gl.glDrawElements(GL4.GL_TRIANGLES, accumulate.indices.length, GL4.GL_UNSIGNED_INT, 0);
+    accumulate.vertex_array.unbind();
+  }
+}
+
+int bvh_index=0;
+
+float[] constructBVH(float[] vertices){
+  bvh_index=0;
+  AABB[] init=new AABB[vertices.length/12];
+  for(int i=0;i<init.length;i++){
+    init[i]=new AABB(Arrays.copyOfRange(vertices,i*12,i*12+12),i);
+  }
+  AABB root=new AABB(init);
+  AABB[] result=splitBVH(root,init);
+  float[] ret=new float[result.length*8];
+  for(int i=0;i<result.length;i++){
+    ret[i*8  ]=result[i].min[0];
+    ret[i*8+1]=result[i].min[1];
+    ret[i*8+2]=result[i].min[2];
+    ret[i*8+3]=result[i].r;
+    ret[i*8+4]=result[i].max[0];
+    ret[i*8+5]=result[i].max[1];
+    ret[i*8+6]=result[i].max[2];
+    ret[i*8+7]=result[i].l;
+  }int idx=0;while(result[idx].l!=-1){idx=result[idx].r;}
+  return ret;
+}
+
+AABB[] splitBVH(AABB root,AABB[] child){//println(child.length,bvh_index);//if(child.length==1)println(d,child[0].l);
+  if(child.length<=1){
+    return new AABB[]{child[0]};
+  }
+  ArrayList<AABB>nodes=new ArrayList<>();
+  nodes.add(root);
+  
+  int idx=0;
+  float best_cost=Float.MAX_VALUE;
+  int a=root.getLargest();
+  switch(a){
+    case 0:Arrays.sort(child,new Comparator<AABB>(){int compare(AABB x,AABB y){return sign((x.max[0]+x.min[0])*0.5-(y.max[0]+y.min[0])*0.5);}});break;
+    case 1:Arrays.sort(child,new Comparator<AABB>(){int compare(AABB x,AABB y){return sign((x.max[1]+x.min[1])*0.5-(y.max[1]+y.min[1])*0.5);}});break;
+    case 2:Arrays.sort(child,new Comparator<AABB>(){int compare(AABB x,AABB y){return sign((x.max[2]+x.min[2])*0.5-(y.max[2]+y.min[2])*0.5);}});break;
+  }
+  for(int i=0,n=child.length-1;i<n;i++){
+    float cost=new AABB(Arrays.copyOfRange(child,0,i+1)).getSAH(i+1)+new AABB(Arrays.copyOfRange(child,i+1,child.length)).getSAH(child.length-i-1);
+    if(cost<best_cost){
+      best_cost=cost;
+      idx=i;
+    }
+  }
+  
+  bvh_index++;
+  root.r=bvh_index;
+  AABB[] r_a=Arrays.copyOfRange(child,0,idx+1);
+  nodes.addAll(Arrays.asList(splitBVH(new AABB(r_a),r_a)));
+  
+  bvh_index++;
+  root.l=bvh_index;
+  AABB[] l_a=Arrays.copyOfRange(child,idx+1,child.length);
+  nodes.addAll(Arrays.asList(splitBVH(new AABB(l_a),l_a)));
+  
+  return nodes.toArray(new AABB[0]);
+}
+
+class AABB{
+  float[] min;
+  float[] max;
+  int r;
+  int l;
+  
+  AABB(float[] v,int idx){
+    min=new float[]{Float.MAX_VALUE,Float.MAX_VALUE,Float.MAX_VALUE};
+    max=new float[]{-Float.MAX_VALUE,-Float.MAX_VALUE,-Float.MAX_VALUE};
+    for(int i=0;i<3;i++){
+      for(int j=0;j<3;j++){
+        min[j]=min(min[j],v[i*4+j]);
+        max[j]=max(max[j],v[i*4+j]);
+      }
+    }
+    r=idx;
+    l=-1;
+  }
+  
+  AABB(AABB... b){
+    min=new float[]{Float.MAX_VALUE,Float.MAX_VALUE,Float.MAX_VALUE};
+    max=new float[]{-Float.MAX_VALUE,-Float.MAX_VALUE,-Float.MAX_VALUE};
+    for(AABB a:b){
+      for(int i=0;i<3;i++){
+        min[i]=min(min[i],a.min[i]);
+        max[i]=max(max[i],a.max[i]);
+      }
+    }
+  }
+  
+  float getSAH(float n){
+    float x=max[0]-min[0];
+    float y=max[1]-min[1];
+    float z=max[2]-max[2];
+    return 2*(x*y+x*z+y*z)*n;
+  }
+  
+  int getLargest(){
+    float dx=max[0]-min[0];
+    float dy=max[1]-min[1];
+    float dz=max[2]-min[2];
+    float mx=max(dx,dy,dz);
+    return dx==mx?0:dy==mx?1:2;
+  }
+  
+  String toString(){
+    return "("+min[0]+","+min[1]+","+min[2]+") : ("+max[0]+","+max[1]+","+max[2]+") : "+r+","+l;
+  }
+}
+
+int sign(float x){
+  return x<-1e-5?-1:x>1e-5?1:0;
+}

@@ -34,6 +34,12 @@ class Level extends RObject{
     });
   }
   
+  void rt_prepass(RayTracer r){
+    components.forEach((k,v)->{
+      v.rt_prepass(r);
+    });
+  }
+  
   void transparent(Rasterizer r){
     components.forEach((k,v)->{
       v.transparent(r);
@@ -81,6 +87,8 @@ abstract class Component extends RObject{
   abstract void prepass(Renderer r);
   
   void transparent(Rasterizer r){}
+  
+  abstract void rt_prepass(RayTracer r);
   
   void postProcess(){}
 }
@@ -152,6 +160,8 @@ class DefaultPlayer extends Pawn{
   }
   
   void prepass(Renderer r){}
+  
+  void rt_prepass(RayTracer r){}
 }
 
 class Camera extends Component{
@@ -249,11 +259,15 @@ class Camera extends Component{
   }
   
   void prepass(Renderer r){}
+  
+  void rt_prepass(RayTracer r){}
 }
 
 class StaticMesh extends Component{
   Matrix4d model;
   ArrayList<Segment> segments;
+  
+  Matrix4d p_mvp;
   
   int mesh_vertex_count=0;
   
@@ -283,6 +297,16 @@ class StaticMesh extends Component{
   
   void update(){
     
+  }
+  
+  void rt_prepass(RayTracer r){
+    Matrix4d mvp=new Matrix4d();
+    mvp.set(r.player.camera.proj).mul(r.player.camera.view).mul(model);
+    if(p_mvp==null)p_mvp=new Matrix4d(mvp);
+    segments.forEach(s->{
+      s.prepass(mvp,model);
+    });
+    p_mvp=new Matrix4d(mvp);
   }
   
   void prepass(Renderer r){profiler.start(toString());
@@ -328,6 +352,8 @@ class StaticMesh extends Component{
     
     ShaderProgram transparent_program;//const.?
     
+    ShaderProgram prepass_program;
+    
     int vertex_count;
     DTriMesh triMesh;
     
@@ -369,6 +395,10 @@ class StaticMesh extends Component{
       vertex_shader=new Shader(getProgram("TransparentVert.vs"), GL4.GL_VERTEX_SHADER);
       fragment_shader=new Shader(getProgram("Transparent.fs"), GL4.GL_FRAGMENT_SHADER);
       transparent_program=new ShaderProgram(vertex_shader, fragment_shader);
+      
+      vertex_shader=new Shader(getProgram("PrepassVert.vs"), GL4.GL_VERTEX_SHADER);
+      fragment_shader=new Shader(getProgram("Prepass.fs"), GL4.GL_FRAGMENT_SHADER);
+      prepass_program=new ShaderProgram(vertex_shader, fragment_shader);
       
       DTriMeshData triMeshData=OdeHelper.createTriMeshData();
       triMeshData.build(obj.vertices,IntStream.rangeClosed(0,obj.vertices.length/3-1).toArray());
@@ -470,6 +500,20 @@ class StaticMesh extends Component{
       shadow_program.set_f32m4("mvp",new Matrix4f(mvp));
       shadow_program.apply();
       s_vertex_array.bind();
+      gl.glDrawArrays(GL4.GL_TRIANGLES, 0, vertex_count);
+    }
+    
+    void prepass(Matrix4d mvp,Matrix4d model){
+      if(renderModel!=RenderModel.Opaque)return;
+      prepass_program.set_f32m4("mvp", new Matrix4f(mvp));
+      prepass_program.set_f32m4("p_mvp", new Matrix4f(p_mvp));
+      prepass_program.set_f32m4("model", new Matrix4f(model));
+      prepass_program.set_f32m4("it_model", new Matrix4f(model).invert().transpose());
+      material.normal.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE0));
+      prepass_program.set_i32("t_normal",0);
+      prepass_program.set_f32("ID",material_index);
+      prepass_program.apply();
+      vertex_array.bind();
       gl.glDrawArrays(GL4.GL_TRIANGLES, 0, vertex_count);
     }
     
@@ -681,6 +725,8 @@ class PointLight extends LightComponent{
   
   void update(){}
   
+  void rt_prepass(RayTracer r){}
+  
   void prepass(Renderer r){}
   
   void display(){}
@@ -706,6 +752,8 @@ class SpotLight extends LightComponent{
   }
   
   void update(){}
+  
+  void rt_prepass(RayTracer r){}
   
   void prepass(Renderer r){}
   
@@ -809,6 +857,8 @@ class DirectionalLight extends LightComponent{
     initCascade();
     //view_projection=new Matrix4d(cascade_proj[0]).mul(cascade_view[0]);
   }
+  
+  void rt_prepass(RayTracer r){}
   
   void prepass(Renderer r){}
   

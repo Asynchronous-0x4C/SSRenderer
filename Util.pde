@@ -353,6 +353,8 @@ class Texture{
   void asDepth(){
     bind();
     gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_DEPTH_COMPONENT,width,height,0,GL4.GL_DEPTH_COMPONENT,GL4.GL_FLOAT,null);
+    set_filtering(GL4.GL_NEAREST);
+    set_wrapping(GL4.GL_CLAMP_TO_EDGE);
   }
   
   void asDepth(int w,int h){
@@ -429,6 +431,8 @@ class FloatTexture extends Texture{
   void load(){
     bind();
     gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_RGBA32F,width,height,0,GL4.GL_RGBA,GL4.GL_FLOAT,null);
+    set_wrapping(GL4.GL_CLAMP_TO_EDGE);
+    set_filtering(GL4.GL_NEAREST);
   }
 }
 

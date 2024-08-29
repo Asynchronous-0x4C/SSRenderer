@@ -5,8 +5,20 @@ HashMap<String,Material>material_set=new HashMap<>();
 ArrayList<Material>materials=new ArrayList<>();
 
 class RayTracer extends Renderer{
+  FrameBuffer prev_pass;
+  FloatTexture prev_depth;
+  FloatTexture prev_normal;
+  
+  FrameBuffer prepass;
+  Texture depth;
+  FloatTexture ID;
+  FloatTexture normal;
+  FloatTexture motion;
+  
   FrameBuffer main_pass;
   FloatTexture main_texture;
+  
+  FilterProgram prev;
   
   FilterProgram raytrace;
   FloatTexture hdri;
@@ -24,13 +36,42 @@ class RayTracer extends Renderer{
   int num_iterations=1;
   
   void initFrameBuffer(){
+    prev_pass=new FrameBuffer();
+    prev_pass.bind();
+    
+    prev_depth=new FloatTexture();
+    prev_depth.load();
+    
+    prev_normal=new FloatTexture();
+    prev_normal.load();
+    
+    prev_pass.load(prev_depth,prev_normal);
+    prev_pass.unbind();
+    
+    prepass=new FrameBuffer();
+    prepass.bind();
+    
+    depth=new Texture();
+    depth.asDepth();
+    prepass.loadDepth(depth);
+    
+    ID=new FloatTexture();
+    ID.load();
+    
+    normal=new FloatTexture();
+    normal.load();
+    
+    motion=new FloatTexture();
+    motion.load();
+    
+    prepass.load(ID,normal,motion);
+    prepass.unbind();
+    
     main_pass=new FrameBuffer();
     main_pass.bind();
     
     main_texture=new FloatTexture();
     main_texture.load();
-    main_texture.set_filtering(GL4.GL_NEAREST);
-    main_texture.set_wrapping(GL4.GL_CLAMP_TO_EDGE);
     
     main_pass.load(main_texture);
     main_pass.unbind();
@@ -54,6 +95,8 @@ class RayTracer extends Renderer{
   }
   
   void initProgram(){
+    prev=new FilterProgram("./data/PrevPass.fs","./data/FilterVert.vs");
+    
     raytrace=new FilterProgram("./data/PathTracing.fs","./data/PathTracingVert.vs");
     
     accumulate=new FilterProgram("./data/Accum.fs","./data/FilterVert.vs");
@@ -101,6 +144,7 @@ class RayTracer extends Renderer{
   }
   
   void display(){
+    prepass();
     main_pass();
     if(!mvp.equals(p_mvp,1e-5)){
       num_iterations=1;
@@ -109,6 +153,32 @@ class RayTracer extends Renderer{
     }
     accum_pass();
     p_mvp=new Matrix4d(mvp);
+  }
+  
+  void prepass(){
+    prev_pass.bind();
+    gl.glViewport(0,0,width,height);
+    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
+    gl.glClearColor(0,0,0,1);
+    gl.glDisable(GL4.GL_DEPTH_TEST);
+    background(0);
+    prev.program.set_i32("depth",0);
+    prev.program.set_i32("normal",1);
+    depth.activate(GL4.GL_TEXTURE0);
+    normal.activate(GL4.GL_TEXTURE1);
+    prev.program.apply();
+    prev.vertex_array.bind();
+    gl.glDrawElements(GL4.GL_TRIANGLES, prev.indices.length, GL4.GL_UNSIGNED_INT, 0);
+    prev_pass.unbind();
+    
+    prepass.bind();
+    gl.glViewport(0,0,width,height);
+    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
+    gl.glClearColor(0,0,0,1);
+    gl.glEnable(GL4.GL_DEPTH_TEST);
+    background(0);
+    level.rt_prepass(this);
+    prepass.unbind();
   }
   
   void main_pass(){
@@ -141,7 +211,17 @@ class RayTracer extends Renderer{
     accumulate.program.set_f32v2("resolution",width,height);
     accumulate.program.set_i32("num_iterations",num_iterations);
     accumulate.program.set_i32("current",0);
+    accumulate.program.set_i32("motion",1);
+    accumulate.program.set_i32("prev_normal",2);
+    accumulate.program.set_i32("normal",3);
+    accumulate.program.set_i32("prev_depth",4);
+    accumulate.program.set_i32("depth",5);
     main_texture.activate(GL4.GL_TEXTURE0);
+    motion.activate(GL4.GL_TEXTURE1);
+    prev_normal.activate(GL4.GL_TEXTURE2);
+    normal.activate(GL4.GL_TEXTURE3);
+    prev_depth.activate(GL4.GL_TEXTURE4);
+    depth.activate(GL4.GL_TEXTURE5);
     accumulate.program.apply();
     accumulate.vertex_array.bind();
     accum.bindBase(8);

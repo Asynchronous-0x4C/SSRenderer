@@ -73,8 +73,10 @@ void draw() {
   if(frameCount==1){
     initPhysics();
     renderer=new RayTracer();
+    //renderer=new Rasterizer();
     //loadObj("/data/models/mats/","mats.obj");
-    loadGLTF("/data/models/suiban/","suiban.glb");
+    loadGLTF("/data/models/Exit8/","Exit8.glb");
+    //loadGLTF("/data/models/demo/","demo.glb");
     return;
   }
   synchronized(tasks){
@@ -85,10 +87,12 @@ void draw() {
       }
     }
   }
-  try{
-    future.get();
-  }catch(Exception e){
-    e.printStackTrace();
+  if(future!=null){
+    try{
+      future.get();
+    }catch(Exception e){
+      e.printStackTrace();
+    }
   }
   profiler.start("update");
   renderer.update();

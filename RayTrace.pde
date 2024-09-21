@@ -1,8 +1,11 @@
 ArrayList<Float>ssbo_vertices=new ArrayList<>();
 ArrayList<Float>ssbo_materials=new ArrayList<>();
+ArrayList<Long>ssbo_textures=new ArrayList<>();
 
 HashMap<String,Material>material_set=new HashMap<>();
 ArrayList<Material>materials=new ArrayList<>();
+
+ArrayList<BindlessTexture>textures=new ArrayList<>();
 
 class RayTracer extends Renderer{
   FrameBuffer prev_pass;
@@ -26,6 +29,7 @@ class RayTracer extends Renderer{
   Buffer mats;
   Buffer bvh;
   Buffer rnd;
+  Buffer tx;
   
   FilterProgram accumulate;
   Buffer accum;
@@ -83,6 +87,7 @@ class RayTracer extends Renderer{
     mats=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     bvh=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     rnd=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
+    tx=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     int[] r=new int[width*height];
     for(int i=0;i<r.length;i++){
       r[i]=round(random(-Integer.MIN_VALUE,Integer.MAX_VALUE));
@@ -117,30 +122,48 @@ class RayTracer extends Renderer{
   
   void reloadMaterials(){
     ssbo_materials.clear();
+    ssbo_textures.clear();
     for(int i=0,n=materials.size();i<n;++i){
       Material m=materials.get(i);
       ssbo_materials.add(m.albedo.get().x);
       ssbo_materials.add(m.albedo.get().y);
       ssbo_materials.add(m.albedo.get().z);
-      ssbo_materials.add(m.roughness.get());
+      ssbo_materials.add(i*4.0);
       ssbo_materials.add(m.specular.get().x);
       ssbo_materials.add(m.specular.get().y);
       ssbo_materials.add(m.specular.get().z);
-      ssbo_materials.add(m.metalness.get());
+      ssbo_materials.add(i*4.0+1);
       ssbo_materials.add(m.emission.get().x);
       ssbo_materials.add(m.emission.get().y);
       ssbo_materials.add(m.emission.get().z);
+      ssbo_materials.add(i*4.0+2);
+      ssbo_materials.add(m.roughness.get());
+      ssbo_materials.add(m.metalness.get());
       ssbo_materials.add(m.transmission.get());
+      ssbo_materials.add(i*4.0+3);
       ssbo_materials.add(m.IOR.get());
       ssbo_materials.add(-1.0);
       ssbo_materials.add(m.anisotropy_s.get());
       ssbo_materials.add(m.anisotropy_r.get());
+      ssbo_textures.add(((BindlessTexture)m.albedo.texture).handle);
+      ssbo_textures.add(((BindlessTexture)m.roughness.texture).handle);
+      ssbo_textures.add(((BindlessTexture)m.emission.texture).handle);
+      ssbo_textures.add(((BindlessTexture)m.metalness.texture).handle);
+      ((BindlessTexture)m.albedo.texture).makeResident();
+      ((BindlessTexture)m.roughness.texture).makeResident();
+      ((BindlessTexture)m.emission.texture).makeResident();
+      ((BindlessTexture)m.metalness.texture).makeResident();
     }
     float[] d=new float[ssbo_materials.size()];
     for(int i=0;i<d.length;++i){
       d[i]=ssbo_materials.get(i);
     }
     mats.set_data(FloatBuffer.wrap(d),GL4.GL_DYNAMIC_DRAW);
+    long[] _d=new long[ssbo_textures.size()];
+    for(int i=0;i<_d.length;++i){
+      _d[i]=ssbo_textures.get(i);
+    }println(_d);
+    tx.set_data(LongBuffer.wrap(_d),GL4.GL_DYNAMIC_DRAW);
   }
   
   void display(){
@@ -198,6 +221,7 @@ class RayTracer extends Renderer{
     mats.bindBase(1);
     bvh.bindBase(2);
     rnd.bindBase(3);
+    tx.bindBase(4);
     gl.glDrawElements(GL4.GL_TRIANGLES, raytrace.indices.length, GL4.GL_UNSIGNED_INT, 0);
     raytrace.vertex_array.unbind();
     main_pass.unbind();
@@ -234,9 +258,9 @@ int bvh_index=0;
 
 float[] constructBVH(float[] vertices){
   bvh_index=0;
-  AABB[] init=new AABB[vertices.length/12];
+  AABB[] init=new AABB[vertices.length/16];
   for(int i=0;i<init.length;i++){
-    init[i]=new AABB(Arrays.copyOfRange(vertices,i*12,i*12+12),i);
+    init[i]=new AABB(Arrays.copyOfRange(vertices,i*16,i*16+12),i);
   }
   AABB root=new AABB(init);
   AABB[] result=splitBVH(root,init);

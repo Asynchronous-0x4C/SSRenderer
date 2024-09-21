@@ -94,7 +94,7 @@ class Buffer{
   
   void set_data(java.nio.Buffer data,int usege){
     bind();
-    gl.glBufferData(target,data.limit() * (data instanceof IntBuffer?Integer.BYTES:Float.BYTES),data,usege);
+    gl.glBufferData(target,data.limit() * (data instanceof IntBuffer?Integer.BYTES:data instanceof FloatBuffer?Float.BYTES:Long.BYTES),data,usege);
   }
   
   void set_data(int size,int usege){
@@ -433,6 +433,47 @@ class FloatTexture extends Texture{
     gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_RGBA32F,width,height,0,GL4.GL_RGBA,GL4.GL_FLOAT,null);
     set_wrapping(GL4.GL_CLAMP_TO_EDGE);
     set_filtering(GL4.GL_NEAREST);
+  }
+}
+
+class BindlessTexture extends Texture{
+  long handle;
+  
+  BindlessTexture load(String path){
+    bind();
+    UImage i=loadUImage(path);
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_COMPRESSED_RGBA,i.w,i.h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE,ByteBuffer.wrap(i.src));
+    gl.glGenerateMipmap(GL4.GL_TEXTURE_2D);
+    set_wrapping(GL4.GL_REPEAT);
+    set_filtering(GL4.GL_LINEAR);
+    handle=gl.glGetTextureHandleARB(id.get(0));
+    return this;
+  }
+  
+  BindlessTexture load(int w,int h,ByteBuffer data){
+    bind();
+    set_wrapping(GL4.GL_REPEAT);
+    set_filtering(GL4.GL_LINEAR);
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_COMPRESSED_RGBA,w,h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE, data);
+    handle=gl.glGetTextureHandleARB(id.get(0));
+    return this;
+  }
+  
+  BindlessTexture load(int w,int h,byte[] data){
+    bind();
+    set_wrapping(GL4.GL_REPEAT);
+    set_filtering(GL4.GL_LINEAR);
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_COMPRESSED_RGBA,w,h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE, ByteBuffer.wrap(data));
+    handle=gl.glGetTextureHandleARB(id.get(0));
+    return this;
+  }
+  
+  void makeResident(){
+    gl.glMakeTextureHandleResidentARB(handle);
+  }
+  
+  void makeNonResident(){
+    gl.glMakeTextureHandleNonResidentARB(handle);
   }
 }
 

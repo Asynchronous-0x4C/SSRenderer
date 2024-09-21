@@ -345,6 +345,7 @@ class StaticMesh extends Component{
     int material_index;
     
     float[] vertices;
+    float[] uvs;
     
     VertexArray s_vertex_array;
     Buffer s_vertex_buffer;
@@ -419,6 +420,7 @@ class StaticMesh extends Component{
         vertices[i+1]=v.y;
         vertices[i+2]=v.z;
       }
+      uvs=obj.uv;
       //vertices=obj.vertices;
     }
     
@@ -426,12 +428,24 @@ class StaticMesh extends Component{
       
     }
     
-    void putSSBOData(){
-      for(int i=0,n=vertices.length/3;i<n;++i){
-        ssbo_vertices.add(vertices[i*3  ]*5);
-        ssbo_vertices.add(vertices[i*3+1]*5);
-        ssbo_vertices.add(vertices[i*3+2]*5);
+    void putSSBOData(){println(vertices.length,uvs.length);
+      for(int i=0,n=vertices.length/9;i<n;++i){
+        ssbo_vertices.add(vertices[i*9  ]*5);
+        ssbo_vertices.add(vertices[i*9+1]*5);
+        ssbo_vertices.add(vertices[i*9+2]*5);
         ssbo_vertices.add((float)material_index);
+        ssbo_vertices.add(vertices[i*9+3]*5);
+        ssbo_vertices.add(vertices[i*9+4]*5);
+        ssbo_vertices.add(vertices[i*9+5]*5);
+        ssbo_vertices.add(uvs[i*6  ]);
+        ssbo_vertices.add(vertices[i*9+6]*5);
+        ssbo_vertices.add(vertices[i*9+7]*5);
+        ssbo_vertices.add(vertices[i*9+8]*5);
+        ssbo_vertices.add(uvs[i*6+1]);
+        ssbo_vertices.add(uvs[i*6+2]);
+        ssbo_vertices.add(uvs[i*6+3]);
+        ssbo_vertices.add(uvs[i*6+4]);
+        ssbo_vertices.add(uvs[i*6+5]);
       }
     }
     
@@ -591,7 +605,7 @@ class TextureCache{
         BufferedImage bi=ImageIO.read(new ByteArrayInputStream(data));
         int w=bi.getWidth();
         int h=bi.getHeight();
-        return put(name,new Texture().load(w,h,getRGB(bi)));
+        return put(name,new BindlessTexture().load(w,h,getRGB(bi)));
       }catch(Exception e){
         return null;
       }
@@ -623,7 +637,7 @@ class TextureCache{
           t.ifPresent(tx->{
             TexData tex_data=(TexData)tx;
             tasks.add(()->{
-              Texture texture=new Texture().load(tex_data.w,tex_data.h,tex_data.b);
+              Texture texture=new BindlessTexture().load(tex_data.w,tex_data.h,tex_data.b);
               put(name,texture);
               async_register.get(name).forEach(mp->{
                 mp.setTexture(texture);

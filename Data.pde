@@ -459,11 +459,11 @@ class GLTFMaterial extends Material{
     this.cache=cache;
     name=mat.getName();
     
-    albedo=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),new Vector3f(mat.getBaseColorFactor()));
-    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),albedo));
+    albedo=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),new Vector3f(mat.getBaseColorFactor()));
+    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->{albedo.setTexture(cache.get(t.getImageModel()));println("texture loaded");});
     
     normal=new MaterialParam<>(new Vector3f());
-    normal.setTexture(new Texture().load(1,1,new byte[]{-128,-128,-1,-1}));
+    normal.setTexture(new BindlessTexture().load(1,1,new byte[]{-128,-128,-1,-1}));
     Optional.ofNullable(mat.getNormalTexture()).ifPresent(s->cache.getAsync(s.getImageModel(),normal));
     
     Vector3f spec=mat.getExtensions()!=null?
@@ -471,22 +471,22 @@ class GLTFMaterial extends Material{
                       ListToVector3f(((LinkedHashMap<String,ArrayList<Double>>)mat.getExtensions().get("KHR_materials_specular")).get("specularColorFactor"),new Vector3f(0.5)):
                     new Vector3f(0.5):
                   new Vector3f(0.5);
-    specular=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),spec);
+    specular=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),spec);
     Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),specular));
     
-    emission=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),new Vector3f(mat.getEmissiveFactor()));
+    emission=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),new Vector3f(mat.getEmissiveFactor()));
     Optional.ofNullable(mat.getEmissiveTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),emission));
     
-    metalness=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),mat.getMetallicFactor());
+    metalness=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),mat.getMetallicFactor());
     Optional.ofNullable(mat.getMetallicRoughnessTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),metalness));
     
-    roughness=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),mat.getRoughnessFactor());
+    roughness=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),mat.getRoughnessFactor());
     
     IOR=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_ior","ior",1));
-    transmission=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_transmission","transmissionFactor",0));
+    transmission=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_transmission","transmissionFactor",0));
     
-    anisotropy_s=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_anisotropy","anisotropyStrength",0));
-    anisotropy_r=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_anisotropy","anisotropyRotation",0));
+    anisotropy_s=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_anisotropy","anisotropyStrength",0));
+    anisotropy_r=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_anisotropy","anisotropyRotation",0));
   }
   
   float getExtensionFactor(MaterialModel m,String name,String value,float init){

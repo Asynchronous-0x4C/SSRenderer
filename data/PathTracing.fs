@@ -1,5 +1,8 @@
 #version 460
 
+#extension GL_ARB_bindless_texture : require
+#extension GL_ARB_gpu_shader_int64 : require
+
 #define FLT_MAX 3.402823466e+38
 
 struct Ray{
@@ -15,18 +18,21 @@ struct Hit{
   vec3 n;
   float l;
   float i;
+  vec2 uv;
 };
 
 struct Triangle{
   vec4 v0;
   vec4 v1;
   vec4 v2;
+  vec4 uv12;
 };
 
 struct Material{
-  vec4 c_r;
-  vec4 s_m;
-  vec4 e_t;
+  vec4 c;
+  vec4 s;
+  vec4 e;
+  vec4 r_m_t_mr;
   vec4 I_ti_a_r;
 };
 
@@ -35,15 +41,15 @@ struct AABB{
   vec4 mx;//If leaf,the index is -1.
 };
 
-layout(std430,binding=0)buffer Triangles{
+layout(std430,binding=0)readonly buffer Triangles{
   Triangle[] tri;
 };
 
-layout(std430,binding=1)buffer Materials{
+layout(std430,binding=1)readonly buffer Materials{
   Material[] mat;
 };
 
-layout(std430,binding=2)buffer BVH{
+layout(std430,binding=2)readonly buffer BVH{
   AABB[] bvh;
 };
 
@@ -51,12 +57,16 @@ layout(std430,binding=3)buffer Random{
   uint[] rnd;
 };
 
+layout(std430,binding=4)buffer Tex{
+  uint64_t hnd[];
+};
+
 uniform sampler2D hdri;
 uniform vec2 resolution;
 
 int pixel_idx;
 
-in Ray in_ray;
+uniform mat4 mvp;
 
 out vec4 fragColor;
 
@@ -86,7 +96,7 @@ float random(){
 
 void main(){
   pixel_idx=int(gl_FragCoord.x)+int(gl_FragCoord.y)*int(resolution.x);
-  Ray ray=Ray(in_ray.o,normalize(in_ray.d),1.0);
+  Ray ray=Ray(mvp[3].xyz,(mvp*vec4((gl_FragCoord.xy/resolution-0.5)*2.0,1.0,1.0)).xyz,1.0);
 
   vec3 result=trace_ray(ray);
   fragColor=vec4(result,1.0);
@@ -105,6 +115,10 @@ mat3 getBasisMat(vec3 n){
   return mat3(x,n,z);
 }
 
+vec3 getComponent(vec4 c,vec2 uv){
+  return c.rgb*texture(sampler2D(hnd[int(c.w)]),uv).rgb;
+}
+
 vec3 trace_ray(in Ray r){
   vec3 c=vec3(0.);
   vec3 w=vec3(1.);
@@ -113,7 +127,7 @@ vec3 trace_ray(in Ray r){
     Hit h=traverse_BVH(r);
     if(h.hit){
       Material m=mat[int(h.i)];
-      c+=w*m.e_t.rgb;
+      c+=w*getComponent(m.e,h.uv);
       mat3 basis=getBasisMat(h.n);
       r.d=transpose(basis)*r.d;
       w*=BSDF(r,m,h);
@@ -147,7 +161,7 @@ vec3 Lambert(vec3 a){
 vec3 d_BRDF(inout Ray r,Material m,Hit h,out float pdf){
   vec3 o=sample_cos_hemisphere(pdf);
   r.d=o;
-  vec3 c=Lambert(m.c_r.rgb);
+  vec3 c=Lambert(getComponent(m.c,h.uv));
   return c;
 }
 
@@ -205,11 +219,12 @@ float G_Smith(vec3 i,vec3 o,float alpha){
 }
 
 vec3 s_BRDF(inout Ray r,Material m,Hit h,out float pdf){
-  float alpha=m.c_r.a*m.c_r.a;
+  float rough=m.r_m_t_mr.r;
+  float alpha=rough*rough;
   vec3 o=r.d;
   vec3 hv=samplem(-o,alpha);
   vec3 i=reflect(o,hv);
-  vec3 F=Fresnel(abs(dot(o,hv)),F0(m.c_r.rgb,m.s_m.rgb,m.s_m.a));
+  vec3 F=Fresnel(abs(dot(o,hv)),F0(getComponent(m.c,h.uv),getComponent(m.s,h.uv),rough));
   // float D=D_GGX(hv,alpha);
   // float G=G_Smith(i,o,alpha);
   // pdf=D*G1(o,alpha)/(4.0*abs(dot(hv,i)));
@@ -222,13 +237,14 @@ vec3 s_BRDF(inout Ray r,Material m,Hit h,out float pdf){
 }
 
 vec3 s_BTDF(inout Ray r,Material m,inout Hit h,out float pdf){
-  float alpha=m.c_r.a*m.c_r.a;
+  float rough=m.r_m_t_mr.r;
+  float alpha=rough*rough;
   vec3 o=r.d;
   vec3 hv=samplem(-o,alpha);
   float i_IOR=dot(h.n,o)>0.0?m.I_ti_a_r.r:1.0;
   vec3 i=refract(o,hv,r.IOR/i_IOR);
   r.IOR=dot(i,o)<0.0?i_IOR:r.IOR;
-  vec3 F=Fresnel(abs(dot(o,hv)),F0(m.c_r.rgb,m.s_m.rgb,m.s_m.a));
+  vec3 F=Fresnel(abs(dot(o,hv)),F0(getComponent(m.c,h.uv),getComponent(m.s,h.uv),rough));
   // float D=D_GGX(hv,alpha);
   // float G=G_Smith(i,o,alpha);
   // pdf=D*G1(o,alpha)/(4.0*abs(dot(hv,i)));
@@ -237,17 +253,17 @@ vec3 s_BTDF(inout Ray r,Material m,inout Hit h,out float pdf){
   pdf=1.0;
   r.d=i;
   // return F*G*D/(4.0*abs(i.y)*abs(o.y));
-  return m.c_r.rgb/(i_IOR*i_IOR);
+  return getComponent(m.c,h.uv)/(i_IOR*i_IOR);
 }
 
 vec3 BSDF(inout Ray r,Material m,inout Hit h){
   float pdf;
   vec3 c;
   float rnd=random();
-  float ks=Luminance(Fresnel(abs(r.d.y),F0(vec3(1.0),m.s_m.rgb,m.s_m.a)));
+  float ks=Luminance(Fresnel(abs(r.d.y),F0(vec3(1.0),getComponent(m.s,h.uv),m.r_m_t_mr.g)));
   float inv_ks=1.0-ks;
-  float kt=inv_ks*m.e_t.a*(1.0-m.s_m.a);
-  float kd=(inv_ks-kt)*(1.0-m.s_m.a);
+  float kt=inv_ks*m.r_m_t_mr.b*(1.0-m.r_m_t_mr.g);
+  float kd=(inv_ks-kt)*(1.0-m.r_m_t_mr.g);
   ks=1.0-kt-kd;
   if(rnd<kt){
     c=s_BTDF(r,m,h,pdf)/kt;
@@ -321,6 +337,8 @@ Hit hit_triangle(in Triangle t,in Ray r){
   hit.n=normalize(cross(e1,e2))*nz_sign(det);
   hit.l=t_;
   hit.i=t.v0.w;
+  vec2 b_uv=vec2(t.v1.w,t.v2.w);
+  hit.uv=(1.0-u-v)*b_uv+u*t.uv12.xy+v*t.uv12.zw;
   
   return hit;
 }

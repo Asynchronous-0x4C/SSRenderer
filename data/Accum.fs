@@ -38,19 +38,19 @@ void main(){
   // }
   //accum[pixel_idx].rgb=accum[p_pixel_idx].rgb*(1.0-alpha)+texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb*alpha;
   fragColor=vec4(toneMap(accum[pixel_idx].rgb),1.0);
-  //fragColor=vec4(texelFetch(prev_normal,ivec2(gl_FragCoord.xy),0).rgb*0.5,1.0);
+  // fragColor=vec4(pow(texelFetch(depth,ivec2(gl_FragCoord.xy),0).rrr,vec3(40.0)),1.0);
 }
 
 vec4 accumulate(vec2 offset){
-  vec2 p_coord=gl_FragCoord.xy-offset;
-  vec3 nor=texelFetch(normal,ivec2(gl_FragCoord.xy),0).rgb;
-  vec3 pnor=texelFetch(prev_normal,ivec2(p_coord),0).rgb;
-  float dep=texelFetch(depth,ivec2(gl_FragCoord.xy),0).r;
-  float pdep=texelFetch(prev_depth,ivec2(p_coord),0).r;
+  vec2 p_coord=(gl_FragCoord.xy-offset)/resolution;
+  vec3 nor=texture(normal,gl_FragCoord.xy/resolution,0).rgb;
+  vec3 pnor=texture(prev_normal,p_coord,0).rgb;
+  float dep=texture(depth,gl_FragCoord.xy/resolution,0).r;
+  float pdep=texture(prev_depth,p_coord,0).r;
   float ndot=dot(nor,pnor);
   float dd=abs(dep-pdep);
   //bool acc=dd<0.99;
-  bool acc=dd<0.05&&ndot>0.9;
-  vec3 current=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
+  bool acc=dd<0.05&&ndot>0.9&&min(p_coord.x,p_coord.y)>0.0&&max(p_coord.x,p_coord.y)<1.0;
+  vec3 current=texture(current,gl_FragCoord.xy/resolution,0).rgb;
   return acc?vec4(mix(accum[p_pixel_idx].rgb,current,alpha),accum[p_pixel_idx].a++):vec4(current,1.0);
 }

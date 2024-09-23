@@ -460,11 +460,11 @@ class GLTFMaterial extends Material{
     name=mat.getName();
     
     albedo=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),new Vector3f(mat.getBaseColorFactor()));
-    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->{albedo.setTexture(cache.get(t.getImageModel()));println("texture loaded");});
+    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->albedo.setTexture(cache.get(t.getImageModel())));
     
     normal=new MaterialParam<>(new Vector3f());
     normal.setTexture(new BindlessTexture().load(1,1,new byte[]{-128,-128,-1,-1}));
-    Optional.ofNullable(mat.getNormalTexture()).ifPresent(s->cache.getAsync(s.getImageModel(),normal));
+    Optional.ofNullable(mat.getNormalTexture()).ifPresent(s->normal.setTexture(cache.get(s.getImageModel())));
     
     Vector3f spec=mat.getExtensions()!=null?
                     mat.getExtensions().containsKey("KHR_materials_specular")?
@@ -472,13 +472,13 @@ class GLTFMaterial extends Material{
                     new Vector3f(0.5):
                   new Vector3f(0.5);
     specular=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),spec);
-    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),specular));
+    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->specular.setTexture(cache.get(t.getImageModel())));
     
     emission=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),new Vector3f(mat.getEmissiveFactor()));
-    Optional.ofNullable(mat.getEmissiveTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),emission));
+    Optional.ofNullable(mat.getEmissiveTexture()).ifPresent(t->emission.setTexture(cache.get(t.getImageModel())));
     
     metalness=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),mat.getMetallicFactor());
-    Optional.ofNullable(mat.getMetallicRoughnessTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),metalness));
+    Optional.ofNullable(mat.getMetallicRoughnessTexture()).ifPresent(t->metalness.setTexture(cache.get(t.getImageModel())));
     
     roughness=new MaterialParam<>(new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}),mat.getRoughnessFactor());
     

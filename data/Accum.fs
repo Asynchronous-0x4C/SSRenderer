@@ -8,6 +8,7 @@ uniform sampler2D normal;
 uniform sampler2D prev_depth;
 uniform sampler2D depth;
 uniform vec2 resolution;
+uniform bool move;
 
 const float alpha=0.2;
 
@@ -27,17 +28,21 @@ vec3 toneMap(vec3 c){
 }
 
 void main(){
-  vec2 offset=texelFetch(motion,ivec2(gl_FragCoord.xy),0).rg*resolution;
-  pixel_idx=int(gl_FragCoord.y)+int(gl_FragCoord.x)*int(resolution.y);
-  p_pixel_idx=int(gl_FragCoord.y-offset.y)+int(gl_FragCoord.x-offset.x)*int(resolution.y);
-  accum[pixel_idx]=accumulate(offset);
-  // if(num_iterations==1){
-  //   accum[pixel_idx].rgb=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
-  // }else{
-  //   accum[pixel_idx].rgb+=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
-  // }
-  //accum[pixel_idx].rgb=accum[p_pixel_idx].rgb*(1.0-alpha)+texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb*alpha;
-  fragColor=vec4(toneMap(accum[pixel_idx].rgb),1.0);
+  if(move){
+    vec2 offset=texelFetch(motion,ivec2(gl_FragCoord.xy),0).rg*resolution;
+    pixel_idx=int(gl_FragCoord.y)+int(gl_FragCoord.x)*int(resolution.y);
+    p_pixel_idx=int(gl_FragCoord.y-offset.y)+int(gl_FragCoord.x-offset.x)*int(resolution.y);
+    accum[pixel_idx]=accumulate(offset);
+    fragColor=vec4(toneMap(accum[pixel_idx].rgb),1.0);
+  }else{
+    pixel_idx=int(gl_FragCoord.y)+int(gl_FragCoord.x)*int(resolution.y);
+    if(num_iterations==1){
+      accum[pixel_idx].rgb=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
+    }else{
+      accum[pixel_idx].rgb+=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
+    }
+    fragColor=vec4(toneMap(accum[pixel_idx].rgb/float(num_iterations)),1.0);
+  }
   // fragColor=vec4(pow(texelFetch(depth,ivec2(gl_FragCoord.xy),0).rrr,vec3(40.0)),1.0);
 }
 

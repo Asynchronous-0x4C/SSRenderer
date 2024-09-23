@@ -24,7 +24,7 @@ vec3 GetNormal() {
 }
 
 void main(){
-  out_ID=vec4(ID);
+  out_ID=vec4(ID,w_uv,0.0);
   out_normal=vec4(GetNormal(),1.0);
   vec4 prev=p_mvp*w_position;
   vec4 curr=mvp*w_position;

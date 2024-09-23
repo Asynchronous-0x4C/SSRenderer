@@ -176,7 +176,7 @@ class Camera extends Component{
   float far;
   
   float speed=0.2;
-  float sensitivity=0.25;
+  float sensitivity=0.1;
   float smoothness=0.5;
   
   Vector2f mouseMove=new Vector2f();
@@ -411,11 +411,10 @@ class StaticMesh extends Component{
       _model.get(d);
       triMesh.setRotation(new DMatrix3(d[0],d[1],d[2],d[3],d[4],d[5],d[6],d[7],d[8]));
       triMesh.setPosition(model.m30(),model.m31(),model.m32());
-      Matrix4f f_model=new Matrix4f(model);
       vertices=new float[obj.vertices.length];
       for(int i=0;i<vertices.length;i+=3){
         Vector4f v=new Vector4f(obj.vertices[i],obj.vertices[i+1],obj.vertices[i+2],1.0);
-        v=v.mul(f_model);
+        v=v.mul(new Matrix4f(model));
         vertices[i  ]=v.x;
         vertices[i+1]=v.y;
         vertices[i+2]=v.z;
@@ -428,19 +427,19 @@ class StaticMesh extends Component{
       
     }
     
-    void putSSBOData(){println(vertices.length,uvs.length);
+    void putSSBOData(){
       for(int i=0,n=vertices.length/9;i<n;++i){
-        ssbo_vertices.add(vertices[i*9  ]*5);
-        ssbo_vertices.add(vertices[i*9+1]*5);
-        ssbo_vertices.add(vertices[i*9+2]*5);
+        ssbo_vertices.add(vertices[i*9  ]);
+        ssbo_vertices.add(vertices[i*9+1]);
+        ssbo_vertices.add(vertices[i*9+2]);
         ssbo_vertices.add((float)material_index);
-        ssbo_vertices.add(vertices[i*9+3]*5);
-        ssbo_vertices.add(vertices[i*9+4]*5);
-        ssbo_vertices.add(vertices[i*9+5]*5);
+        ssbo_vertices.add(vertices[i*9+3]);
+        ssbo_vertices.add(vertices[i*9+4]);
+        ssbo_vertices.add(vertices[i*9+5]);
         ssbo_vertices.add(uvs[i*6  ]);
-        ssbo_vertices.add(vertices[i*9+6]*5);
-        ssbo_vertices.add(vertices[i*9+7]*5);
-        ssbo_vertices.add(vertices[i*9+8]*5);
+        ssbo_vertices.add(vertices[i*9+6]);
+        ssbo_vertices.add(vertices[i*9+7]);
+        ssbo_vertices.add(vertices[i*9+8]);
         ssbo_vertices.add(uvs[i*6+1]);
         ssbo_vertices.add(uvs[i*6+2]);
         ssbo_vertices.add(uvs[i*6+3]);
@@ -518,7 +517,6 @@ class StaticMesh extends Component{
     }
     
     void prepass(Matrix4d mvp,Matrix4d model){
-      if(renderModel!=RenderModel.Opaque)return;
       prepass_program.set_f32m4("mvp", new Matrix4f(mvp));
       prepass_program.set_f32m4("p_mvp", new Matrix4f(p_mvp));
       prepass_program.set_f32m4("model", new Matrix4f(model));

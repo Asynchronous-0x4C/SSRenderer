@@ -61,6 +61,7 @@ void setup() {
   ((PJOGL)((PGraphicsOpenGL)g).pgl).gl.glEnable(GL4.GL_TEXTURE_CUBE_MAP_SEAMLESS);
   main_input=new Input(this,(PSurfaceJOGL)surface);
   main_input.getKeyBoard().addKeyBind("Jump",(int)VK_SPACE);
+  main_input.getKeyBoard().addKeyBind("Change_Move",(int)VK_M);
   main_cache=new TextureCache();
   profiler=new Profiler();
   tasks=Collections.synchronizedList(new ArrayList<>());
@@ -76,6 +77,7 @@ void draw() {
     //renderer=new Rasterizer();
     //loadObj("/data/models/mats/","mats.obj");
     loadGLTF("/data/models/Exit8/","Exit8.glb");
+    //loadGLTF("/data/models/suiban/","suiban.glb");
     //loadGLTF("/data/models/demo/","demo.glb");
     return;
   }

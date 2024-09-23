@@ -38,6 +38,7 @@ class RayTracer extends Renderer{
   Matrix4d p_mvp;
   
   int num_iterations=1;
+  boolean move=true;
   
   void initFrameBuffer(){
     prev_pass=new FrameBuffer();
@@ -128,31 +129,33 @@ class RayTracer extends Renderer{
       ssbo_materials.add(m.albedo.get().x);
       ssbo_materials.add(m.albedo.get().y);
       ssbo_materials.add(m.albedo.get().z);
-      ssbo_materials.add(i*4.0);
+      ssbo_materials.add(i*5.0);
       ssbo_materials.add(m.specular.get().x);
       ssbo_materials.add(m.specular.get().y);
       ssbo_materials.add(m.specular.get().z);
-      ssbo_materials.add(i*4.0+1);
+      ssbo_materials.add(i*5.0+1);
       ssbo_materials.add(m.emission.get().x);
       ssbo_materials.add(m.emission.get().y);
       ssbo_materials.add(m.emission.get().z);
-      ssbo_materials.add(i*4.0+2);
-      ssbo_materials.add(m.roughness.get());
+      ssbo_materials.add(i*5.0+2);
       ssbo_materials.add(m.metalness.get());
+      ssbo_materials.add(m.roughness.get());
       ssbo_materials.add(m.transmission.get());
-      ssbo_materials.add(i*4.0+3);
+      ssbo_materials.add(i*5.0+3);
       ssbo_materials.add(m.IOR.get());
-      ssbo_materials.add(-1.0);
+      ssbo_materials.add(i*5.0+4);
       ssbo_materials.add(m.anisotropy_s.get());
       ssbo_materials.add(m.anisotropy_r.get());
       ssbo_textures.add(((BindlessTexture)m.albedo.texture).handle);
       ssbo_textures.add(((BindlessTexture)m.roughness.texture).handle);
       ssbo_textures.add(((BindlessTexture)m.emission.texture).handle);
       ssbo_textures.add(((BindlessTexture)m.metalness.texture).handle);
+      ssbo_textures.add(((BindlessTexture)m.normal.texture).handle);
       ((BindlessTexture)m.albedo.texture).makeResident();
       ((BindlessTexture)m.roughness.texture).makeResident();
       ((BindlessTexture)m.emission.texture).makeResident();
       ((BindlessTexture)m.metalness.texture).makeResident();
+      ((BindlessTexture)m.normal.texture).makeResident();
     }
     float[] d=new float[ssbo_materials.size()];
     for(int i=0;i<d.length;++i){
@@ -162,13 +165,18 @@ class RayTracer extends Renderer{
     long[] _d=new long[ssbo_textures.size()];
     for(int i=0;i<_d.length;++i){
       _d[i]=ssbo_textures.get(i);
-    }println(_d);
+    }
     tx.set_data(LongBuffer.wrap(_d),GL4.GL_DYNAMIC_DRAW);
   }
   
   void display(){
+    blendMode(REPLACE);
     prepass();
     main_pass();
+    if(main_input.getKeyBoard().getBindedInput("Change_Move")){
+      move=!move;
+      num_iterations=1;
+    }
     if(!mvp.equals(p_mvp,1e-5)){
       num_iterations=1;
     }else{
@@ -176,6 +184,7 @@ class RayTracer extends Renderer{
     }
     accum_pass();
     p_mvp=new Matrix4d(mvp);
+    blendMode(BLEND);
   }
   
   void prepass(){
@@ -212,9 +221,16 @@ class RayTracer extends Renderer{
     gl.glDisable(GL4.GL_DEPTH_TEST);
     mvp=new Matrix4d().set(player.camera.proj).mul(player.camera.view).invert();
     raytrace.program.set_f32m4("mvp",new Matrix4f(mvp));
+    raytrace.program.set_f32v3("origin",player.camera.origin);
     raytrace.program.set_f32v2("resolution",width,height);
     hdri.activate(GL4.GL_TEXTURE0);
     raytrace.program.set_i32("hdri",0);
+    depth.activate(GL4.GL_TEXTURE1);
+    raytrace.program.set_i32("depth",1);
+    normal.activate(GL4.GL_TEXTURE2);
+    raytrace.program.set_i32("normal",2);
+    ID.activate(GL4.GL_TEXTURE3);
+    raytrace.program.set_i32("ID",3);
     raytrace.program.apply();
     raytrace.vertex_array.bind();
     tris.bindBase(0);
@@ -240,6 +256,7 @@ class RayTracer extends Renderer{
     accumulate.program.set_i32("normal",3);
     accumulate.program.set_i32("prev_depth",4);
     accumulate.program.set_i32("depth",5);
+    accumulate.program.set_b("move",move);
     main_texture.activate(GL4.GL_TEXTURE0);
     motion.activate(GL4.GL_TEXTURE1);
     prev_normal.activate(GL4.GL_TEXTURE2);

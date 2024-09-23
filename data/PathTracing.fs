@@ -11,16 +11,6 @@ struct Ray{
   float IOR;
 };
 
-struct Hit{
-  bool hit;
-  vec3 d;
-  vec3 p;
-  vec3 n;
-  float l;
-  float i;
-  vec2 uv;
-};
-
 struct Triangle{
   vec4 v0;
   vec4 v1;
@@ -32,8 +22,19 @@ struct Material{
   vec4 c;
   vec4 s;
   vec4 e;
-  vec4 r_m_t_mr;
+  vec4 m_r_t_mr;
   vec4 I_ti_a_r;
+};
+
+struct Hit{
+  bool hit;
+  vec3 d;
+  vec3 p;
+  vec3 n;
+  float l;
+  float i;
+  vec2 uv;
+  Triangle t;
 };
 
 struct AABB{
@@ -62,16 +63,20 @@ layout(std430,binding=4)buffer Tex{
 };
 
 uniform sampler2D hdri;
+uniform sampler2D depth;
+uniform sampler2D normal;
+uniform sampler2D ID;
 uniform vec2 resolution;
+uniform mat4 mvp;
+uniform vec3 origin;
 
 int pixel_idx;
 
-uniform mat4 mvp;
 
 out vec4 fragColor;
 
 const int MAX_DEPTH=128;
-const int NUM_REFLECT=4;
+const int NUM_REFLECT=3;
 const float INV_PI=0.31830988618379;
 const float PI=3.141592653589793;
 const float TWO_PI=6.283185307179586;
@@ -96,7 +101,7 @@ float random(){
 
 void main(){
   pixel_idx=int(gl_FragCoord.x)+int(gl_FragCoord.y)*int(resolution.x);
-  Ray ray=Ray(mvp[3].xyz,(mvp*vec4((gl_FragCoord.xy/resolution-0.5)*2.0,1.0,1.0)).xyz,1.0);
+  Ray ray=Ray(origin,normalize((mvp*vec4((gl_FragCoord.xy*2.0-resolution)/resolution,1.0,1.0)).xyz),1.0);
 
   vec3 result=trace_ray(ray);
   fragColor=vec4(result,1.0);
@@ -115,27 +120,92 @@ mat3 getBasisMat(vec3 n){
   return mat3(x,n,z);
 }
 
+vec3 D2P(vec2 tc,float d){
+  vec2 uv=tc*2.0-vec2(1.0);
+  vec4 pp=vec4(uv,d*2.0-1.0,1.0);
+  vec4 p=mvp*pp;
+  return p.xyz/p.w;
+}
+
 vec3 getComponent(vec4 c,vec2 uv){
   return c.rgb*texture(sampler2D(hnd[int(c.w)]),uv).rgb;
+}
+
+vec3 getComponent_sRGB(vec4 c,vec2 uv){
+  return c.rgb*pow(texture(sampler2D(hnd[int(c.w)]),uv).rgb,vec3(2.2));
+}
+
+vec3 getNormal(float i,Hit h){
+  vec3 nor=texture(sampler2D(hnd[int(i)]),h.uv).rgb*2.0-1.0;
+
+  vec3 e1=normalize(h.t.v1.xyz-h.t.v0.xyz);
+  vec3 e2=normalize(h.t.v2.xyz-h.t.v0.xyz);
+  vec2 u0=vec2(h.t.v1.w,h.t.v2.w);
+  vec2 u1=h.t.uv12.xy-u0;
+  vec2 u2=h.t.uv12.zw-u0;
+
+  float _f=u1.x*u2.y-u2.x*u1.y;
+  float f=1.0/_f;
+  vec3 T=normalize(f*(u2.y*e1-u1.y*e2));
+  vec3 B=normalize(f*(-u2.x*e1+u1.x*e2));
+
+  return _f==0?h.n:normalize(mat3(T,B,h.n)*nor);
+}
+
+void calcColor(in Hit h,inout Ray r,inout vec3 c,inout vec3 w){
+  Material m=mat[int(h.i)];
+  m.c.rgb=getComponent_sRGB(m.c,h.uv);
+  m.s.rgb=getComponent_sRGB(m.s,h.uv);
+  m.e.rgb=getComponent_sRGB(m.e,h.uv);
+  m.m_r_t_mr.rg=getComponent(m.m_r_t_mr,h.uv).rg;
+  c+=w*m.e.rgb;
+  mat3 basis=getBasisMat(getNormal(m.I_ti_a_r.g,h));
+  r.d=transpose(basis)*r.d;
+  w*=BSDF(r,m,h);
+  r.d=basis*r.d;
+  r.o=h.p+h.n*6e-4;
+}
+
+void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
+  vec2 uv=gl_FragCoord.xy/resolution;
+  vec4 id=texture(ID,uv);
+  Hit h;
+  h.p=D2P(uv,texture(depth,uv).r);
+  h.n=texture(normal,uv).xyz;
+  h.uv=id.yz;
+  hit=id.w<0.5;
+  if(hit){
+    Material m=mat[int(id.x)];
+    m.c.rgb=getComponent_sRGB(m.c,h.uv);
+    m.s.rgb=getComponent_sRGB(m.s,h.uv);
+    m.e.rgb=getComponent_sRGB(m.e,h.uv);
+    m.m_r_t_mr.rg=getComponent(m.m_r_t_mr,h.uv).rg;
+    c+=w*m.e.rgb;
+    mat3 basis=getBasisMat(h.n);
+    r.d=transpose(basis)*r.d;
+    w*=BSDF(r,m,h);
+    r.d=basis*r.d;
+    r.o=h.p+h.n*6e-4;
+  }else{
+    c+=sample_HDRI(r.d);
+  }
 }
 
 vec3 trace_ray(in Ray r){
   vec3 c=vec3(0.);
   vec3 w=vec3(1.);
-  Hit hit;
-  for(int i=0;i<NUM_REFLECT;i++){
-    Hit h=traverse_BVH(r);
-    if(h.hit){
-      Material m=mat[int(h.i)];
-      c+=w*getComponent(m.e,h.uv);
-      mat3 basis=getBasisMat(h.n);
-      r.d=transpose(basis)*r.d;
-      w*=BSDF(r,m,h);
-      r.d=basis*r.d;
-      r.o=h.p+h.n*6e-4;
-    }else{
-      c+=w*sample_HDRI(r.d);
-      break;
+  bool fhit=true;
+  FirstHit(r,c,w,fhit);
+  if(fhit){
+    Hit hit;
+    for(int i=0;i<NUM_REFLECT;i++){
+      Hit h=traverse_BVH(r);
+      if(h.hit){
+        calcColor(h,r,c,w);
+      }else{
+        c+=w*sample_HDRI(r.d);
+        break;
+      }
     }
   }
   return c;
@@ -150,7 +220,7 @@ vec3 sample_cos_hemisphere(out float pdf){
   float v=random()*TWO_PI;
   vec2 d=u*vec2(cos(v),sin(v));
   float y=sqrt(max(0,1.0-u*u));
-  pdf=u*INV_PI;
+  pdf=y;
   return vec3(d.x,y,d.y);
 }
 
@@ -161,7 +231,7 @@ vec3 Lambert(vec3 a){
 vec3 d_BRDF(inout Ray r,Material m,Hit h,out float pdf){
   vec3 o=sample_cos_hemisphere(pdf);
   r.d=o;
-  vec3 c=Lambert(getComponent(m.c,h.uv));
+  vec3 c=Lambert(m.c.rgb);
   return c;
 }
 
@@ -219,15 +289,15 @@ float G_Smith(vec3 i,vec3 o,float alpha){
 }
 
 vec3 s_BRDF(inout Ray r,Material m,Hit h,out float pdf){
-  float rough=m.r_m_t_mr.r;
+  float rough=m.m_r_t_mr.g;
   float alpha=rough*rough;
   vec3 o=r.d;
   vec3 hv=samplem(-o,alpha);
   vec3 i=reflect(o,hv);
-  vec3 F=Fresnel(abs(dot(o,hv)),F0(getComponent(m.c,h.uv),getComponent(m.s,h.uv),rough));
-  // float D=D_GGX(hv,alpha);
+  vec3 F=Fresnel(abs(dot(o,hv)),F0(m.c.rgb,m.s.rgb,m.m_r_t_mr.r));
+  float D=D_GGX(hv,alpha);
   // float G=G_Smith(i,o,alpha);
-  // pdf=D*G1(o,alpha)/(4.0*abs(dot(hv,i)));
+  // pdf=abs(dot(hv,i))/abs(hv.y);
   // pdf=(4.0*abs(dot(hv,i)))/G1(o,alpha);
   pdf=1.0;
   i.y=i.y<0.0?-i.y:i.y;
@@ -237,14 +307,14 @@ vec3 s_BRDF(inout Ray r,Material m,Hit h,out float pdf){
 }
 
 vec3 s_BTDF(inout Ray r,Material m,inout Hit h,out float pdf){
-  float rough=m.r_m_t_mr.r;
+  float rough=m.m_r_t_mr.g;
   float alpha=rough*rough;
   vec3 o=r.d;
   vec3 hv=samplem(-o,alpha);
   float i_IOR=dot(h.n,o)>0.0?m.I_ti_a_r.r:1.0;
   vec3 i=refract(o,hv,r.IOR/i_IOR);
   r.IOR=dot(i,o)<0.0?i_IOR:r.IOR;
-  vec3 F=Fresnel(abs(dot(o,hv)),F0(getComponent(m.c,h.uv),getComponent(m.s,h.uv),rough));
+  vec3 F=Fresnel(abs(dot(o,hv)),F0(m.c.rgb,m.s.rgb,m.m_r_t_mr.r));
   // float D=D_GGX(hv,alpha);
   // float G=G_Smith(i,o,alpha);
   // pdf=D*G1(o,alpha)/(4.0*abs(dot(hv,i)));
@@ -253,17 +323,17 @@ vec3 s_BTDF(inout Ray r,Material m,inout Hit h,out float pdf){
   pdf=1.0;
   r.d=i;
   // return F*G*D/(4.0*abs(i.y)*abs(o.y));
-  return getComponent(m.c,h.uv)/(i_IOR*i_IOR);
+  return m.c.rgb/(i_IOR*i_IOR);
 }
 
 vec3 BSDF(inout Ray r,Material m,inout Hit h){
   float pdf;
   vec3 c;
   float rnd=random();
-  float ks=Luminance(Fresnel(abs(r.d.y),F0(vec3(1.0),getComponent(m.s,h.uv),m.r_m_t_mr.g)));
+  float ks=Luminance(Fresnel(abs(r.d.y),F0(vec3(1.0),m.s.rgb,m.m_r_t_mr.g)));
   float inv_ks=1.0-ks;
-  float kt=inv_ks*m.r_m_t_mr.b*(1.0-m.r_m_t_mr.g);
-  float kd=(inv_ks-kt)*(1.0-m.r_m_t_mr.g);
+  float kt=inv_ks*m.m_r_t_mr.b*(1.0-m.m_r_t_mr.g);
+  float kd=(inv_ks-kt)*(1.0-m.m_r_t_mr.g);
   ks=1.0-kt-kd;
   if(rnd<kt){
     c=s_BTDF(r,m,h,pdf)/kt;
@@ -339,6 +409,7 @@ Hit hit_triangle(in Triangle t,in Ray r){
   hit.i=t.v0.w;
   vec2 b_uv=vec2(t.v1.w,t.v2.w);
   hit.uv=(1.0-u-v)*b_uv+u*t.uv12.xy+v*t.uv12.zw;
+  hit.t=t;
   
   return hit;
 }

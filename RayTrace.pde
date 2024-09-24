@@ -31,8 +31,17 @@ class RayTracer extends Renderer{
   Buffer rnd;
   Buffer tx;
   
+  FrameBuffer accum;
   FilterProgram accumulate;
-  Buffer accum;
+  FloatTexture before;
+  FloatTexture after;
+  FloatTexture moment;
+  
+  FrameBuffer SVGF_filter;
+  FilterProgram SVGF;
+  FloatTexture out_color;
+  
+  FilterProgram disp;
   
   Matrix4d mvp;
   Matrix4d p_mvp;
@@ -49,6 +58,10 @@ class RayTracer extends Renderer{
     
     prev_normal=new FloatTexture();
     prev_normal.load();
+    
+    before=new FloatTexture();
+    before.load();
+    before.set_filtering(GL4.GL_LINEAR);
     
     prev_pass.load(prev_depth,prev_normal);
     prev_pass.unbind();
@@ -84,6 +97,27 @@ class RayTracer extends Renderer{
     hdri=new FloatTexture();
     hdri.load(sketchPath()+"/data/bg/8k/8k_2.hdr");
     
+    accum=new FrameBuffer();
+    accum.bind();
+    
+    after=new FloatTexture();
+    after.load();
+    
+    moment=new FloatTexture();
+    moment.load();
+    
+    out_color=new FloatTexture();
+    out_color.load();
+    
+    accum.load(after,moment,out_color);
+    accum.unbind();
+    
+    SVGF_filter=new FrameBuffer();
+    SVGF_filter.bind();
+    
+    SVGF_filter.load(before,out_color);
+    SVGF_filter.unbind();
+    
     tris=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     mats=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     bvh=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
@@ -94,10 +128,6 @@ class RayTracer extends Renderer{
       r[i]=round(random(-Integer.MIN_VALUE,Integer.MAX_VALUE));
     }
     rnd.set_data(IntBuffer.wrap(r),GL4.GL_STATIC_DRAW);
-    
-    accum=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
-    float[] c=new float[width*height*4];
-    accum.set_data(FloatBuffer.wrap(c),GL4.GL_STATIC_DRAW);
   }
   
   void initProgram(){
@@ -106,6 +136,10 @@ class RayTracer extends Renderer{
     raytrace=new FilterProgram("./data/PathTracing.fs","./data/PathTracingVert.vs");
     
     accumulate=new FilterProgram("./data/Accum.fs","./data/FilterVert.vs");
+    
+    SVGF=new FilterProgram("./data/SVGF.fs","./data/FilterVert.vs");
+    
+    disp=new FilterProgram("./data/Display.fs","./data/FilterVert.vs");
   }
   
   void reloadVertices(){
@@ -183,6 +217,7 @@ class RayTracer extends Renderer{
       num_iterations++;
     }
     accum_pass();
+    disp();
     p_mvp=new Matrix4d(mvp);
     blendMode(BLEND);
   }
@@ -196,8 +231,10 @@ class RayTracer extends Renderer{
     background(0);
     prev.program.set_i32("depth",0);
     prev.program.set_i32("normal",1);
+    prev.program.set_i32("moment",2);
     depth.activate(GL4.GL_TEXTURE0);
     normal.activate(GL4.GL_TEXTURE1);
+    moment.activate(GL4.GL_TEXTURE2);
     prev.program.apply();
     prev.vertex_array.bind();
     gl.glDrawElements(GL4.GL_TRIANGLES, prev.indices.length, GL4.GL_UNSIGNED_INT, 0);
@@ -216,9 +253,6 @@ class RayTracer extends Renderer{
   void main_pass(){
     main_pass.bind();
     gl.glViewport(0,0,width,height);
-    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
-    gl.glClearColor(0,0,0,1);
-    gl.glDisable(GL4.GL_DEPTH_TEST);
     mvp=new Matrix4d().set(player.camera.proj).mul(player.camera.view).invert();
     raytrace.program.set_f32m4("mvp",new Matrix4f(mvp));
     raytrace.program.set_f32v3("origin",player.camera.origin);
@@ -244,6 +278,7 @@ class RayTracer extends Renderer{
   }
   
   void accum_pass(){
+    accum.bind();
     gl.glViewport(0,0,width,height);
     gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
     gl.glClearColor(0,0,0,1);
@@ -256,6 +291,7 @@ class RayTracer extends Renderer{
     accumulate.program.set_i32("normal",3);
     accumulate.program.set_i32("prev_depth",4);
     accumulate.program.set_i32("depth",5);
+    accumulate.program.set_i32("before",6);
     accumulate.program.set_b("move",move);
     main_texture.activate(GL4.GL_TEXTURE0);
     motion.activate(GL4.GL_TEXTURE1);
@@ -263,11 +299,45 @@ class RayTracer extends Renderer{
     normal.activate(GL4.GL_TEXTURE3);
     prev_depth.activate(GL4.GL_TEXTURE4);
     depth.activate(GL4.GL_TEXTURE5);
+    before.activate(GL4.GL_TEXTURE6);
     accumulate.program.apply();
     accumulate.vertex_array.bind();
-    accum.bindBase(8);
     gl.glDrawElements(GL4.GL_TRIANGLES, accumulate.indices.length, GL4.GL_UNSIGNED_INT, 0);
     accumulate.vertex_array.unbind();
+    accum.unbind();
+    
+    SVGF_filter.bind();
+    gl.glViewport(0,0,width,height);
+    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
+    gl.glClearColor(0,0,0,1);
+    gl.glDisable(GL4.GL_DEPTH_TEST);
+    SVGF.program.set_f32v2("resolution",width,height);
+    SVGF.program.set_i32("normal",0);
+    SVGF.program.set_i32("depth",1);
+    SVGF.program.set_i32("after",2);
+    SVGF.program.set_i32("moment",3);
+    normal.activate(GL4.GL_TEXTURE0);
+    depth.activate(GL4.GL_TEXTURE1);
+    after.activate(GL4.GL_TEXTURE2);
+    moment.activate(GL4.GL_TEXTURE3);
+    SVGF.program.apply();
+    SVGF.vertex_array.bind();
+    gl.glDrawElements(GL4.GL_TRIANGLES, SVGF.indices.length, GL4.GL_UNSIGNED_INT, 0);
+    SVGF.vertex_array.unbind();
+    SVGF_filter.unbind();
+  }
+  
+  void disp(){
+    gl.glViewport(0,0,width,height);
+    gl.glClear(GL4.GL_COLOR_BUFFER_BIT|GL4.GL_DEPTH_BUFFER_BIT);
+    gl.glClearColor(0,0,0,1);
+    gl.glDisable(GL4.GL_DEPTH_TEST);
+    disp.program.set_i32("texture",0);
+    out_color.activate(GL4.GL_TEXTURE0);
+    disp.program.apply();
+    disp.vertex_array.bind();
+    gl.glDrawElements(GL4.GL_TRIANGLES, disp.indices.length, GL4.GL_UNSIGNED_INT, 0);
+    disp.vertex_array.unbind();
   }
 }
 

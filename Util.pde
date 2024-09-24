@@ -352,7 +352,7 @@ class Texture{
   
   void asDepth(){
     bind();
-    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_DEPTH_COMPONENT,width,height,0,GL4.GL_DEPTH_COMPONENT,GL4.GL_FLOAT,null);
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_DEPTH_COMPONENT32F,width,height,0,GL4.GL_DEPTH_COMPONENT,GL4.GL_FLOAT,null);
     set_filtering(GL4.GL_NEAREST);
     set_wrapping(GL4.GL_CLAMP_TO_EDGE);
   }

@@ -71,9 +71,9 @@ uniform mat4 mvp;
 uniform vec3 origin;
 
 int pixel_idx;
+vec3 albedo;
 
-
-out vec4 fragColor;
+layout(location=0)out vec4 fragColor;
 
 const int MAX_DEPTH=128;
 const int NUM_REFLECT=3;
@@ -99,12 +99,16 @@ float random(){
   return float(xorshift32(rnd[pixel_idx])) * 2.3283064e-10;
 }
 
+float calcLuminance(vec3 src){
+  return dot(src,vec3(0.299,0.587,0.114));
+}
+
 void main(){
   pixel_idx=int(gl_FragCoord.x)+int(gl_FragCoord.y)*int(resolution.x);
   Ray ray=Ray(origin,normalize((mvp*vec4((gl_FragCoord.xy*2.0-resolution)/resolution,1.0,1.0)).xyz),1.0);
 
   vec3 result=trace_ray(ray);
-  fragColor=vec4(result,1.0);
+  fragColor=vec4(result,calcLuminance(result/max(albedo,vec3(0.16))));
 }
 
 float nz_sign(float x){
@@ -176,7 +180,7 @@ void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
   hit=id.w<0.5;
   if(hit){
     Material m=mat[int(id.x)];
-    m.c.rgb=getComponent_sRGB(m.c,h.uv);
+    albedo=m.c.rgb=getComponent_sRGB(m.c,h.uv);
     m.s.rgb=getComponent_sRGB(m.s,h.uv);
     m.e.rgb=getComponent_sRGB(m.e,h.uv);
     m.m_r_t_mr.rg=getComponent(m.m_r_t_mr,h.uv).rg;
@@ -185,9 +189,10 @@ void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
     r.d=transpose(basis)*r.d;
     w*=BSDF(r,m,h);
     r.d=basis*r.d;
-    r.o=h.p+h.n*6e-4;
+    r.o=h.p+h.n*1e-3;
   }else{
     c+=sample_HDRI(r.d);
+    albedo=vec3(1.0);
   }
 }
 

@@ -25,6 +25,7 @@ class RayTracer extends Renderer{
   
   FilterProgram raytrace;
   FloatTexture hdri;
+  FloatTexture albedo;
   Buffer tris;
   Buffer mats;
   Buffer bvh;
@@ -91,7 +92,10 @@ class RayTracer extends Renderer{
     main_texture=new FloatTexture();
     main_texture.load();
     
-    main_pass.load(main_texture);
+    albedo=new FloatTexture();
+    albedo.load();
+    
+    main_pass.load(main_texture,albedo);
     main_pass.unbind();
     
     hdri=new FloatTexture();
@@ -316,10 +320,12 @@ class RayTracer extends Renderer{
     SVGF.program.set_i32("depth",1);
     SVGF.program.set_i32("after",2);
     SVGF.program.set_i32("moment",3);
+    SVGF.program.set_i32("albedo",4);
     normal.activate(GL4.GL_TEXTURE0);
     depth.activate(GL4.GL_TEXTURE1);
     after.activate(GL4.GL_TEXTURE2);
     moment.activate(GL4.GL_TEXTURE3);
+    albedo.activate(GL4.GL_TEXTURE4);
     SVGF.program.apply();
     SVGF.vertex_array.bind();
     gl.glDrawElements(GL4.GL_TRIANGLES, SVGF.indices.length, GL4.GL_UNSIGNED_INT, 0);

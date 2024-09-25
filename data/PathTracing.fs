@@ -71,9 +71,9 @@ uniform mat4 mvp;
 uniform vec3 origin;
 
 int pixel_idx;
-vec3 albedo;
 
 layout(location=0)out vec4 fragColor;
+layout(location=1)out vec4 albedo;
 
 const int MAX_DEPTH=128;
 const int NUM_REFLECT=3;
@@ -108,7 +108,8 @@ void main(){
   Ray ray=Ray(origin,normalize((mvp*vec4((gl_FragCoord.xy*2.0-resolution)/resolution,1.0,1.0)).xyz),1.0);
 
   vec3 result=trace_ray(ray);
-  fragColor=vec4(result,calcLuminance(result/max(albedo,vec3(0.16))));
+  albedo.rgb=max(albedo.rgb,vec3(0.04));
+  fragColor=vec4(result,calcLuminance(result/albedo.rgb));
 }
 
 float nz_sign(float x){
@@ -180,7 +181,7 @@ void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
   hit=id.w<0.5;
   if(hit){
     Material m=mat[int(id.x)];
-    albedo=m.c.rgb=getComponent_sRGB(m.c,h.uv);
+    albedo.rgb=m.c.rgb=getComponent_sRGB(m.c,h.uv);
     m.s.rgb=getComponent_sRGB(m.s,h.uv);
     m.e.rgb=getComponent_sRGB(m.e,h.uv);
     m.m_r_t_mr.rg=getComponent(m.m_r_t_mr,h.uv).rg;
@@ -192,7 +193,7 @@ void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
     r.o=h.p+h.n*1e-3;
   }else{
     c+=sample_HDRI(r.d);
-    albedo=vec3(1.0);
+    albedo.rgb=vec3(1.0);
   }
 }
 

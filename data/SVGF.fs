@@ -4,6 +4,7 @@ uniform sampler2D normal;
 uniform sampler2D depth;
 uniform sampler2D after;
 uniform sampler2D moment;
+uniform sampler2D albedo;
 uniform vec2 resolution;
 
 ivec2 pix;
@@ -25,7 +26,7 @@ vec3 toneMap(vec3 c){
 }
 
 float calcLuminance(vec3 c){
-  return dot(pow(c,vec3(2.2)),vec3(0.299,0.587,0.114));
+  return dot(c,vec3(0.299,0.587,0.114));
 }
 
 void main(){
@@ -37,16 +38,17 @@ void main(){
   vec2 d=sign(vec2(resolution*0.5-gl_FragCoord.xy));
   dd=(vec2(texelFetch(depth,ivec2(gl_FragCoord.xy)+ivec2(d.x,0),0).r,texelFetch(depth,ivec2(gl_FragCoord.xy)+ivec2(0,d.y),0).r)-dep)*d;
   vec4 af=texelFetch(after,pix,0);
-  vec3 lit=af.rgb;
+  vec4 al=texelFetch(albedo,pix,0);
+  vec3 lit=af.rgb/al.rgb;
   float var=texelFetch(moment,pix,0).z;
-  luminance=calcLuminance(lit);
+  luminance=calcLuminance(af.rgb);
 
   for(int i=0;i<5;++i){
     a_trous(i,lit,var);
-    if(i==1)before=vec4(any(isnan(lit))?vec3(0.0):lit,af.a);
+    if(i==1)before=vec4((any(isnan(lit))?vec3(0.0):lit)*al.rgb,af.a);
   }
 
-  fragColor=vec4(toneMap(lit),1.0);
+  fragColor=vec4(toneMap(lit*al.rgb),1.0);
 }
 
 float filter_variance(){

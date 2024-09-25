@@ -128,7 +128,7 @@ vec4 SVGF(){
   float variance;
   if(after.a<4.0){
     vec2 m=variance_estimation(cur_moment.x,cur_moment.y);
-    variance=max(0.0,m.y-m.x*m.x);
+    variance=max(0.1,m.y-m.x*m.x);
   }else{
     variance=cur_moment.y-cur_moment.x*cur_moment.x;
   }

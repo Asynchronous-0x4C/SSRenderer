@@ -251,6 +251,11 @@ class ShaderProgram{
     gl.glUniform1i(loc, data);
   }
   
+  void set_ui32(String name,int data){
+    int loc=get_uniform_location(name);
+    gl.glUniform1ui(loc, data);
+  }
+  
   void set_f32v2(String name,float x,float y){
     int loc=get_uniform_location(name);
     gl.glUniform2f(loc,x,y);
@@ -438,11 +443,21 @@ class FloatTexture extends Texture{
 
 class BindlessTexture extends Texture{
   long handle;
+  int format=GL4.GL_COMPRESSED_RGBA;
+  
+  BindlessTexture(){
+    
+  }
+  
+  BindlessTexture(int format){
+    super();
+    this.format=format;
+  }
   
   BindlessTexture load(String path){
     bind();
     UImage i=loadUImage(path);
-    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_COMPRESSED_RGBA,i.w,i.h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE,ByteBuffer.wrap(i.src));
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,format,i.w,i.h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE,ByteBuffer.wrap(i.src));
     gl.glGenerateMipmap(GL4.GL_TEXTURE_2D);
     set_wrapping(GL4.GL_REPEAT);
     set_filtering(GL4.GL_LINEAR);
@@ -454,7 +469,7 @@ class BindlessTexture extends Texture{
     bind();
     set_wrapping(GL4.GL_REPEAT);
     set_filtering(GL4.GL_LINEAR);
-    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_COMPRESSED_RGBA,w,h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE, data);
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,format,w,h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE, data);
     handle=gl.glGetTextureHandleARB(id.get(0));
     return this;
   }
@@ -463,7 +478,7 @@ class BindlessTexture extends Texture{
     bind();
     set_wrapping(GL4.GL_REPEAT);
     set_filtering(GL4.GL_LINEAR);
-    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,GL4.GL_COMPRESSED_RGBA,w,h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE, ByteBuffer.wrap(data));
+    gl.glTexImage2D(GL4.GL_TEXTURE_2D,0,format,w,h,0,GL4.GL_RGBA,GL4.GL_UNSIGNED_BYTE, ByteBuffer.wrap(data));
     handle=gl.glGetTextureHandleARB(id.get(0));
     return this;
   }

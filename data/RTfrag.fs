@@ -30,7 +30,7 @@ in vec2 w_uv;
 
 vec3 GetNormal() {
   mat3 TBN = mat3(w_tangent, w_bitangent, w_normal);
-  vec3 normalFromMap = texture(t_normal,w_uv).rgb*2.0-1.0;
+  vec3 normalFromMap = normalize((texture(t_normal,w_uv).rgb-vec3(vec2(0.0019607843137),.0))*2.0-1.0);
   return length(w_tangent)<=1e-5?w_normal:normalize(TBN * normalFromMap);
 }
 

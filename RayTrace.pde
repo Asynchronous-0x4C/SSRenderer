@@ -48,6 +48,7 @@ class RayTracer extends Renderer{
   Matrix4d p_mvp;
   
   int num_iterations=1;
+  int num_reflect=4;
   boolean move=true;
   
   void initFrameBuffer(){
@@ -119,7 +120,7 @@ class RayTracer extends Renderer{
     SVGF_filter=new FrameBuffer();
     SVGF_filter.bind();
     
-    SVGF_filter.load(before,out_color);
+    SVGF_filter.load(before);
     SVGF_filter.unbind();
     
     tris=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
@@ -154,46 +155,65 @@ class RayTracer extends Renderer{
       v[i]=ssbo_vertices.get(i);
     }
     tris.set_data(FloatBuffer.wrap(v),GL4.GL_DYNAMIC_DRAW);
-    float[] ssbo_bvh=constructBVH(v);
+    long nanos=System.nanoTime();
+    float[] ssbo_bvh=parallelBVH(v);//saveStrings("p.txt",new String[]{Arrays.toString(ssbo_bvh)});
+    println(ssbo_bvh.length);
     bvh.set_data(FloatBuffer.wrap(ssbo_bvh),GL4.GL_DYNAMIC_DRAW);
+    println("Parallel BVH construction takes "+(System.nanoTime()-nanos)/1000_000+"ms");
+    //nanos=System.nanoTime();
+    //float[] ssbo_bvh=constructBVH(v);//saveStrings("s.txt",new String[]{Arrays.toString(ssbo_bvh)});
+    //println("BVH construction takes "+(System.nanoTime()-nanos)/1000_000+"ms");
+    //bvh.set_data(FloatBuffer.wrap(ssbo_bvh),GL4.GL_DYNAMIC_DRAW);
     println("vertices are loaded.");
+    //exit();
   }
   
   void reloadMaterials(){
     ssbo_materials.clear();
     ssbo_textures.clear();
+    int texture_index=0;
     for(int i=0,n=materials.size();i<n;++i){
       Material m=materials.get(i);
       ssbo_materials.add(m.albedo.get().x);
       ssbo_materials.add(m.albedo.get().y);
       ssbo_materials.add(m.albedo.get().z);
-      ssbo_materials.add(i*5.0);
+      ssbo_materials.add(m.albedo.texture!=null?texture_index++:-1.0);
       ssbo_materials.add(m.specular.get().x);
       ssbo_materials.add(m.specular.get().y);
       ssbo_materials.add(m.specular.get().z);
-      ssbo_materials.add(i*5.0+1);
+      ssbo_materials.add(m.specular.texture!=null?texture_index++:-1.0);
       ssbo_materials.add(m.emission.get().x);
       ssbo_materials.add(m.emission.get().y);
       ssbo_materials.add(m.emission.get().z);
-      ssbo_materials.add(i*5.0+2);
-      ssbo_materials.add(m.metalness.get());
-      ssbo_materials.add(m.roughness.get());
+      ssbo_materials.add(m.emission.texture!=null?texture_index++:-1.0);
+      ssbo_materials.add(m.metallic_roughness.get().x);
+      ssbo_materials.add(m.metallic_roughness.get().y);
       ssbo_materials.add(m.transmission.get());
-      ssbo_materials.add(i*5.0+3);
+      ssbo_materials.add(m.metallic_roughness.texture!=null?texture_index++:-1.0);
       ssbo_materials.add(m.IOR.get());
-      ssbo_materials.add(i*5.0+4);
+      ssbo_materials.add(m.normal.texture!=null?texture_index++:-1.0);
       ssbo_materials.add(m.anisotropy_s.get());
       ssbo_materials.add(m.anisotropy_r.get());
-      ssbo_textures.add(((BindlessTexture)m.albedo.texture).handle);
-      ssbo_textures.add(((BindlessTexture)m.roughness.texture).handle);
-      ssbo_textures.add(((BindlessTexture)m.emission.texture).handle);
-      ssbo_textures.add(((BindlessTexture)m.metalness.texture).handle);
-      ssbo_textures.add(((BindlessTexture)m.normal.texture).handle);
-      ((BindlessTexture)m.albedo.texture).makeResident();
-      ((BindlessTexture)m.roughness.texture).makeResident();
-      ((BindlessTexture)m.emission.texture).makeResident();
-      ((BindlessTexture)m.metalness.texture).makeResident();
-      ((BindlessTexture)m.normal.texture).makeResident();
+      if(m.albedo.texture!=null){
+        ssbo_textures.add(((BindlessTexture)m.albedo.texture).handle);
+        ((BindlessTexture)m.albedo.texture).makeResident();
+      }
+      if(m.specular.texture!=null){
+        ssbo_textures.add(((BindlessTexture)m.specular.texture).handle);
+        ((BindlessTexture)m.specular.texture).makeResident();
+      }
+      if(m.emission.texture!=null){
+        ssbo_textures.add(((BindlessTexture)m.emission.texture).handle);
+        ((BindlessTexture)m.emission.texture).makeResident();
+      }
+      if(m.metallic_roughness.texture!=null){
+        ssbo_textures.add(((BindlessTexture)m.metallic_roughness.texture).handle);
+        ((BindlessTexture)m.metallic_roughness.texture).makeResident();
+      }
+      if(m.normal.texture!=null){
+        ssbo_textures.add(((BindlessTexture)m.normal.texture).handle);
+        ((BindlessTexture)m.normal.texture).makeResident();
+      }
     }
     float[] d=new float[ssbo_materials.size()];
     for(int i=0;i<d.length;++i){
@@ -214,6 +234,12 @@ class RayTracer extends Renderer{
     if(main_input.getKeyBoard().getBindedInput("Change_Move")){
       move=!move;
       num_iterations=1;
+    }
+    if(main_input.getKeyBoard().getBindedInput("Add_Reflection")){
+      num_reflect++;
+    }
+    if(main_input.getKeyBoard().getBindedInput("Sub_Reflection")){
+      num_reflect=max(0,num_reflect-1);
     }
     if(!mvp.equals(p_mvp,1e-5)){
       num_iterations=1;
@@ -258,9 +284,10 @@ class RayTracer extends Renderer{
     main_pass.bind();
     gl.glViewport(0,0,width,height);
     mvp=new Matrix4d().set(player.camera.proj).mul(player.camera.view).invert();
-    raytrace.program.set_f32m4("mvp",new Matrix4f(mvp));
+    raytrace.program.set_f32m4("invPV",new Matrix4f(mvp));
     raytrace.program.set_f32v3("origin",player.camera.origin);
     raytrace.program.set_f32v2("resolution",width,height);
+    raytrace.program.set_i32("num_reflect",num_reflect);
     hdri.activate(GL4.GL_TEXTURE0);
     raytrace.program.set_i32("hdri",0);
     depth.activate(GL4.GL_TEXTURE1);
@@ -362,12 +389,12 @@ float[] constructBVH(float[] vertices){
     ret[i*8  ]=result[i].min[0];
     ret[i*8+1]=result[i].min[1];
     ret[i*8+2]=result[i].min[2];
-    ret[i*8+3]=result[i].r;
+    ret[i*8+3]=Float.intBitsToFloat(result[i].r);
     ret[i*8+4]=result[i].max[0];
     ret[i*8+5]=result[i].max[1];
     ret[i*8+6]=result[i].max[2];
-    ret[i*8+7]=result[i].l;
-  }int idx=0;while(result[idx].l!=-1){idx=result[idx].r;}
+    ret[i*8+7]=Float.intBitsToFloat(result[i].l);
+  }
   return ret;
 }
 
@@ -387,12 +414,13 @@ AABB[] splitBVH(AABB root,AABB[] child){//println(child.length,bvh_index);//if(c
     case 2:Arrays.sort(child,new Comparator<AABB>(){int compare(AABB x,AABB y){return sign((x.max[2]+x.min[2])*0.5-(y.max[2]+y.min[2])*0.5);}});break;
   }
   for(int i=0,n=child.length-1;i<n;i++){
-    float cost=new AABB(Arrays.copyOfRange(child,0,i+1)).getSAH(i+1)+new AABB(Arrays.copyOfRange(child,i+1,child.length)).getSAH(child.length-i-1);
+    int k=round(i*((child.length-1)/n));
+    float cost=new AABB(Arrays.copyOfRange(child,0,k+1)).getSAH(k+1)+new AABB(Arrays.copyOfRange(child,k+1,child.length)).getSAH(child.length-k-1);
     if(cost<best_cost){
       best_cost=cost;
-      idx=i;
+      idx=k;
     }
-  }
+  }//println(best_cost,idx);
   
   bvh_index++;
   root.r=bvh_index;

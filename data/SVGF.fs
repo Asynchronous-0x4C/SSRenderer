@@ -31,24 +31,24 @@ float calcLuminance(vec3 c){
 
 void main(){
   pix=ivec2(gl_FragCoord.xy);
-  imageSize=ivec2(resolution);
-  localMeanStdDev=filter_variance();
-  nor=texelFetch(normal,pix,0).rgb;
-  dep=texelFetch(depth,pix,0).r;
-  vec2 d=sign(vec2(resolution*0.5-gl_FragCoord.xy));
-  dd=(vec2(texelFetch(depth,ivec2(gl_FragCoord.xy)+ivec2(d.x,0),0).r,texelFetch(depth,ivec2(gl_FragCoord.xy)+ivec2(0,d.y),0).r)-dep)*d;
-  vec4 af=texelFetch(after,pix,0);
-  vec4 al=texelFetch(albedo,pix,0);
-  vec3 lit=af.rgb/al.rgb;
-  float var=texelFetch(moment,pix,0).z;
-  luminance=calcLuminance(af.rgb);
+  // imageSize=ivec2(resolution);
+  // localMeanStdDev=filter_variance();
+  // nor=texelFetch(normal,pix,0).rgb;
+  // dep=texelFetch(depth,pix,0).r;
+  // vec2 d=sign(vec2(resolution*0.5-gl_FragCoord.xy));
+  // dd=(vec2(texelFetch(depth,ivec2(gl_FragCoord.xy)+ivec2(d.x,0),0).r,texelFetch(depth,ivec2(gl_FragCoord.xy)+ivec2(0,d.y),0).r)-dep)*d;
+  before=texelFetch(after,pix,0);
+  // vec4 al=texelFetch(albedo,pix,0);
+  // vec3 lit=af.rgb/max(vec3(0.04),al.rgb);
+  // float var=texelFetch(moment,pix,0).z;
+  // luminance=calcLuminance(af.rgb);
 
-  for(int i=0;i<5;++i){
-    a_trous(i,lit,var);
-    if(i==1)before=vec4((any(isnan(lit))?vec3(0.0):lit)*al.rgb,af.a);
-  }
+  // for(int i=0;i<5;++i){
+  //   a_trous(i,lit,var);
+  //   if(i==1)before=vec4((any(isnan(lit))?vec3(0.0):lit)*al.rgb,af.a);
+  // }
 
-  fragColor=vec4(toneMap(lit*al.rgb),1.0);
+  // fragColor=vec4(fragColor.rgb,1.0);
 }
 
 float filter_variance(){
@@ -120,8 +120,8 @@ void a_trous(int stage,inout vec3 lit,inout float var){
 
     const float wz = calcDepthWeight(nbDepth, dep, dd.x, dd.y, float(offset.x), float(offset.y));
     const float wn = calcNormalWeight(nbNormal, nor);
-    //if (h * wz * wn < 1e-6f)
-    //    continue;
+    if (h * wz * wn < 1.0e-6)
+       continue;
 
     vec3 noisyLighting=texelFetch(after,nbPix,0).rgb;
     const float nbLuminance = calcLuminance(noisyLighting);
@@ -135,6 +135,6 @@ void a_trous(int stage,inout vec3 lit,inout float var){
   denoisedLighting /= sumWeights;
   variance /= sumWeights*sumWeights;
 
-  lit=denoisedLighting;
-  var=variance;
+  lit=any(isnan(denoisedLighting))?lit:denoisedLighting;
+  var=isnan(variance)?var:variance;
 }

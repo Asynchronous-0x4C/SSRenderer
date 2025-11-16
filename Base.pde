@@ -186,6 +186,7 @@ class Camera extends Component{
   
   boolean cursor=true;
   boolean free=true;
+  boolean clicked=false;
   
   Camera(){
     super();
@@ -219,7 +220,10 @@ class Camera extends Component{
   }
   
   void update(){
-    if(main_input.isWindowFocused()){
+    if(!clicked&&mousePressed){
+      clicked=true;
+    }
+    if(main_input.isWindowFocused()&&clicked){
       if(cursor){
         cursor=false;
         noCursor();
@@ -432,7 +436,7 @@ class StaticMesh extends Component{
         ssbo_vertices.add(vertices[i*9  ]);
         ssbo_vertices.add(vertices[i*9+1]);
         ssbo_vertices.add(vertices[i*9+2]);
-        ssbo_vertices.add((float)material_index);
+        ssbo_vertices.add(Float.intBitsToFloat(material_index));
         ssbo_vertices.add(vertices[i*9+3]);
         ssbo_vertices.add(vertices[i*9+4]);
         ssbo_vertices.add(vertices[i*9+5]);
@@ -457,13 +461,13 @@ class StaticMesh extends Component{
       program.set_f32v3("color", material.albedo.get());
       program.set_f32v3("specular", material.specular.get());
       program.set_f32v3("emission", material.emission.get());
-      program.set_f32("roughness", material.roughness.get());
-      program.set_f32("metalness", material.metalness.get());
+      program.set_f32("roughness", material.metallic_roughness.get().y);
+      program.set_f32("metalness", material.metallic_roughness.get().y);
       material.albedo.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE0));
       material.normal.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE1));
       material.specular.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE2));
       material.emission.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE3));
-      material.metalness.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE4));
+      material.metallic_roughness.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE4));
       program.set_i32("t_color",0);
       program.set_i32("t_normal",1);
       program.set_i32("t_specular",2);
@@ -485,8 +489,8 @@ class StaticMesh extends Component{
       transparent_program.set_f32v3("color", material.albedo.get());
       transparent_program.set_f32v3("specular", material.specular.get());
       transparent_program.set_f32v3("emission", material.emission.get());
-      transparent_program.set_f32("roughness", material.roughness.get());
-      transparent_program.set_f32("metalness", material.metalness.get());
+      transparent_program.set_f32("roughness", material.metallic_roughness.get().y);
+      transparent_program.set_f32("metalness", material.metallic_roughness.get().x);
       transparent_program.set_f32("transmission", material.transmission.get());
       transparent_program.set_i32("sky", 6);
       transparent_program.set_f32("max_mip_level",r.hdri.mip_count);
@@ -494,7 +498,7 @@ class StaticMesh extends Component{
       material.normal.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE1));
       material.specular.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE2));
       r.shade_texture.activate(GL4.GL_TEXTURE3);
-      material.metalness.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE4));
+      material.metallic_roughness.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE4));
       r.t_depth.activate(GL4.GL_TEXTURE5);
       r.hdri.activate(GL4.GL_TEXTURE6);
       transparent_program.set_i32("t_color",0);
@@ -517,13 +521,15 @@ class StaticMesh extends Component{
     }
     
     void prepass(Matrix4d mvp,Matrix4d model){
+      prepass_program.set_f32v3("position", renderer.player.camera.origin);
       prepass_program.set_f32m4("mvp", new Matrix4f(mvp));
       prepass_program.set_f32m4("p_mvp", new Matrix4f(p_mvp));
       prepass_program.set_f32m4("model", new Matrix4f(model));
       prepass_program.set_f32m4("it_model", new Matrix4f(model).invert().transpose());
       material.normal.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE0));
       prepass_program.set_i32("t_normal",0);
-      prepass_program.set_f32("ID",material_index);
+      prepass_program.set_i32("ID",material_index);
+      prepass_program.set_b("normal_texture",material.normal.texture!=null);
       prepass_program.apply();
       vertex_array.bind();
       gl.glDrawArrays(GL4.GL_TRIANGLES, 0, vertex_count);
@@ -575,6 +581,14 @@ class TextureCache{
   
   HashMap<String,HashSet<MaterialParam>>async_register=new HashMap<>();
   
+  TextureCache(){
+    put("__base-albedo__",new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}));
+    put("__base-normal__",new BindlessTexture(GL4.GL_COMPRESSED_RGBA_BPTC_UNORM).load(1,1,new byte[]{-128,-128,-1,-1}));
+    put("__base-specular__",new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}));
+    put("__base-emission__",new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}));
+    put("__base-metallic-roughness__",new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}));
+  }
+  
   boolean has(String name){
     boolean[] r={false};
     cache.forEach((k,v)->{
@@ -592,7 +606,11 @@ class TextureCache{
   }
   
   Texture get(ImageModel im){
-    String name=im.getName();
+    return get(im,GL4.GL_COMPRESSED_RGBA);
+  }
+  
+  Texture get(ImageModel im,int format){
+    String name=im.getName();long l=System.nanoTime();
     if(has(name)){
       return getCache(name);
     }else{
@@ -602,8 +620,8 @@ class TextureCache{
         imageData.get(data);
         BufferedImage bi=ImageIO.read(new ByteArrayInputStream(data));
         int w=bi.getWidth();
-        int h=bi.getHeight();
-        return put(name,new BindlessTexture().load(w,h,getRGB(bi)));
+        int h=bi.getHeight();println(name+": "+((System.nanoTime()-l)/1_000_000)+"ms");
+        return put(name,new BindlessTexture(format).load(w,h,getRGB(bi)));
       }catch(Exception e){
         return null;
       }

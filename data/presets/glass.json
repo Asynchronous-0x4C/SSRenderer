@@ -1,0 +1,31 @@
+{
+  "model":"/data/models/glass/glass.glb",
+  "position":[0,1.8,0],
+  "rotation":[90,-40,0],
+  "screenshot":[
+    {
+      "type":"temporal",
+      "sample":60
+    },
+    {
+      "type":"accum",
+      "sample":1
+    },
+    {
+      "type":"accum",
+      "sample":2
+    },
+    {
+      "type":"accum",
+      "sample":4
+    },
+    {
+      "type":"accum",
+      "sample":8
+    },
+    {
+      "type":"accum",
+      "sample":512
+    }
+  ]
+}

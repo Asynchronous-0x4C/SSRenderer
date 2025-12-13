@@ -22,7 +22,7 @@ layout(location=2)out vec4 fragColor;
 vec4 SVGF();
 
 vec3 toneMap(vec3 c){
-  return c/(c+0.3);
+  return c/(c+0.1);
 }
 
 void main(){
@@ -32,11 +32,12 @@ void main(){
   }else{
     if(num_iterations==1){
       after.rgb=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
-      after.rgb=any(isnan(after.rgb))||any(isinf(after.rgb))?vec3(0.0):after.rgb;
+      // after.rgb=any(isnan(after.rgb))||any(isinf(after.rgb))?vec3(0.0):after.rgb;
     }else{
       vec3 cur=texelFetch(current,ivec2(gl_FragCoord.xy),0).rgb;
-      after.rgb=accum.rgb+(any(isnan(cur))||any(isinf(after.rgb))?vec3(0.0):cur);
+      after.rgb=accum.rgb+cur;
     }
+    after.a=1.0;
     fragColor=vec4(toneMap(after.rgb/float(num_iterations)),1.0);
   }
   // fragColor=vec4(pow(texelFetch(depth,ivec2(gl_FragCoord.xy),0).rrr,vec3(40.0)),1.0);
@@ -120,7 +121,7 @@ vec4 SVGF(){
   vec2 offset=texelFetch(motion,ivec2(gl_FragCoord.xy),0).rg*resolution;
   vec2 p_coord=(gl_FragCoord.xy-offset)/resolution;
   vec4 current=texture(current,gl_FragCoord.xy/resolution,0);
-  current=any(isnan(current))||any(isinf(current))?vec4(0.0):current;
+  // current=any(isnan(current))||any(isinf(current))?vec4(0.0):current;
   vec4 before=texture(before,p_coord);
   if(canAccum(gl_FragCoord.xy/resolution,p_coord)){
     after=moment(before,vec4(current.rgb,1.0));

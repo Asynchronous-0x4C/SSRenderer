@@ -82,8 +82,9 @@ uniform int num_reflect;
 
 int pixel_idx;
 
-layout(location=0)out vec4 fragColor;
-layout(location=1)out vec4 albedo;
+layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+layout (binding = 0, rgba32f) uniform writeonly image2D fragColor;
 
 const int MAX_DEPTH=128;
 const float INV_PI=0.31830988618379;
@@ -105,7 +106,7 @@ uint xorshift32(inout uint x) {
 }
 
 float random(){
-  return min(float(xorshift32(rnd[pixel_idx])) * 2.328306436538696289062500e-10,0.999999940395355224609375);
+  return float(xorshift32(rnd[pixel_idx])) * 2.3283064e-10;
 }
 
 float calcLuminance(vec3 src){
@@ -113,14 +114,14 @@ float calcLuminance(vec3 src){
 }
 
 void main(){
-  pixel_idx=int(gl_FragCoord.x)+int(gl_FragCoord.y)*int(resolution.x);
-  vec4 n=invPV*vec4((gl_FragCoord.xy*2.0-resolution)/resolution,-1.0,1.0);
-  vec4 f=invPV*vec4((gl_FragCoord.xy*2.0-resolution)/resolution,1.0,1.0);
+  pixel_idx=int(gl_GlobalInvocationID.x)+int(gl_GlobalInvocationID.y)*int(resolution.x);
+  vec4 n=invPV*vec4((gl_GlobalInvocationID.xy*2.0-resolution)/resolution,-1.0,1.0);
+  vec4 f=invPV*vec4((gl_GlobalInvocationID.xy*2.0-resolution)/resolution,1.0,1.0);
   Ray ray=Ray(origin,normalize(f.xyz/f.w-n.xyz/n.w),1.0);
 
   vec3 result=trace_ray(ray);
-  albedo.rgb=max(albedo.rgb,vec3(0.04));
-  fragColor=vec4(result,calcLuminance(result/albedo.rgb));
+  // albedo.rgb=max(albedo.rgb,vec3(0.04));
+  imageStore(fragColor,ivec2(gl_GlobalInvocationID.xy),vec4(result,calcLuminance(result)));
 }
 
 float nz_sign(float x){
@@ -185,7 +186,7 @@ void calcColor(in Hit h,inout Ray r,inout vec3 c,inout vec3 w){
 }
 
 void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
-  vec2 uv=gl_FragCoord.xy/resolution;
+  vec2 uv=gl_GlobalInvocationID.xy/resolution;
   vec4 id=texture(ID,uv);
   Hit h;
   h.p=texture(position,uv).rgb;
@@ -197,7 +198,7 @@ void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
   hit=id.w<0.5;
   if(hit){
     Material m=mat[int(id.x)];
-    albedo.rgb=m.c.rgb=getComponent_sRGB(m.c,h.uv);
+    m.c.rgb=getComponent_sRGB(m.c,h.uv);
     m.s.rgb=getComponent_sRGB(m.s,h.uv);
     m.e.rgb=getComponent_sRGB(m.e,h.uv);
     m.m_r_t_mr.rg=getComponent(m.m_r_t_mr,h.uv).rg;
@@ -208,7 +209,7 @@ void FirstHit(inout Ray r,inout vec3 c,inout vec3 w,out bool hit){
     r.d=normalize(basis*r.d);
   }else{
     c+=sample_HDRI(r.d);
-    albedo.rgb=vec3(1.0);
+    // albedo.rgb=vec3(1.0);
   }
 }
 
@@ -236,11 +237,12 @@ float Luminance(vec3 c){
   return dot(c,vec3(0.299,0.587,0.114));
 }
 
-vec3 sample_cos_hemisphere(){
+vec3 sample_cos_hemisphere(out float pdf){
   float u=random();
   float v=random()*TWO_PI;
   float y=sqrt(1.0-u);
   vec2 d=vec2(cos(v),sin(v))*sqrt(u);
+  pdf=1.0;
   return vec3(d.x,y,d.y);
 }
 
@@ -248,8 +250,8 @@ vec3 Lambert(vec3 a){
   return a;
 }
 
-vec3 d_BRDF(inout Ray r,Material m,in Hit h){
-  vec3 i=sample_cos_hemisphere();
+vec3 d_BRDF(inout Ray r,Material m,out float pdf,in Hit h){
+  vec3 i=sample_cos_hemisphere(pdf);//implement oren-nayar
   r.d=i;
   vec3 c=Lambert(m.c.rgb);
   r.o=h.p+h.n*1e-4/(abs(i.y)+0.1);
@@ -297,7 +299,7 @@ float D_GGX(vec3 h,float alpha){
 }
 
 float G1(vec3 v,float alpha){
-  float d=alpha*sqrt(1.0/min(1.0,v.y*v.y)-1.0);
+  float d=alpha*sqrt(1.0/(v.y*v.y)-1.0);
   return 2.0/(1.0+sqrt(1.0+d*d));
 }
 
@@ -311,7 +313,7 @@ float G_Smith(vec3 i,vec3 o,float alpha){
   return G1(i,alpha)*G1(o,alpha);
 }
 
-vec3 s_BSDF(inout Ray r,Material m,float rnd,in Hit h){
+vec3 s_BSDF(inout Ray r,Material m,out float pdf,in Hit h){
   float rough=m.m_r_t_mr.g;
   float alpha=rough*rough;
   vec3 o=r.d;
@@ -322,7 +324,9 @@ vec3 s_BSDF(inout Ray r,Material m,float rnd,in Hit h){
   vec3 fr_F=1.0-Fresnel(abs(dot(o,hv)),F0(1.0-m.c.rgb,m.s.rgb,1.0),eta);
   vec3 fl_i=reflect(o,hv);
   vec3 fl_F=Fresnel(abs(dot(o,hv)),F0(m.c.rgb,m.s.rgb,m.m_r_t_mr.r),eta);
+  pdf=1.0;
 
+  float rnd=random();
   float btdf_weight=(length(fr_i)<0.01?0.0:1.0)*m.m_r_t_mr.b*(Luminance(fr_F)/(Luminance(fl_F)+Luminance(fr_F)));
   bool btdf=rnd<btdf_weight;
   vec3 i=btdf?fr_i:fl_i;
@@ -336,15 +340,16 @@ vec3 s_BSDF(inout Ray r,Material m,float rnd,in Hit h){
 }
 
 vec3 BSDF(inout Ray r,Material m,inout Hit h){
+  float pdf=1.0;
   vec3 c;
   float rnd=random();
   float ks=mix(mix(Luminance(Fresnel(abs(r.d.y),F0(vec3(1.0),m.s.rgb,m.m_r_t_mr.r),1.0)),0.1,m.m_r_t_mr.g),1.0,max(m.m_r_t_mr.b,m.m_r_t_mr.r));
   if(rnd<ks){
-    c=s_BSDF(r,m,rnd/ks,h)/ks;
+    c=s_BSDF(r,m,pdf,h)/ks;
   }else{
-    c=d_BRDF(r,m,h)/(1.0-ks);
+    c=d_BRDF(r,m,pdf,h)/(1.0-ks);
   }
-  return c;
+  return c/pdf;
 }
 
 Hit traverse_BVH(in Ray r){
@@ -354,6 +359,8 @@ Hit traverse_BVH(in Ray r){
 
   int stack[MAX_DEPTH];
   int idx=0;
+
+  int current_triangle=-1;
 
   AABBHit hit=hit_AABB(bvh[0],r);
   if(!hit.hit)return h;

@@ -1,0 +1,6 @@
+{
+  "model":"/data/models/demo/demo.glb",
+  "camera":{
+    "rotation":[-90,0]
+  }
+}

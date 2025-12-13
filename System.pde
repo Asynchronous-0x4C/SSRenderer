@@ -80,3 +80,77 @@ class Profiler{
     });
   }
 }
+
+class Settings{
+  ArrayList<JSONObject>sample_sequence=new ArrayList<>();
+  int sequence_progress=0;
+  String model_name;
+  String model_path="";
+  
+  boolean physics=false;
+  float[] position=new float[]{0,0,0};
+  float[] rotation=new float[]{0,0};
+  
+  String renderer_type="PathTracer";
+  int reflection=4;
+  int seed=0;
+  
+  Settings(String path){
+    JSONObject o=loadJSONObject(path);
+    load(o);
+    JSONObject scene=loadJSONObject(o.getString("scene"));
+    load(scene);
+  }
+  
+  void load(JSONObject o){
+    if(o.hasKey("model")){
+      model_path=o.getString("model");
+      int idx=model_path.lastIndexOf("/");
+      model_name=model_path.substring(idx+1,model_path.length()).replace(".glb","");
+    }
+    physics=o.getBoolean("physics",physics);
+    if(o.hasKey("camera")){
+      JSONObject camera=o.getJSONObject("camera");
+      if(camera.hasKey("position"))position=camera.getJSONArray("position").toFloatArray();
+      if(camera.hasKey("rotation"))rotation=camera.getJSONArray("rotation").toFloatArray();
+    }
+    reflection=o.getInt("reflection",reflection);
+    seed=o.getInt("seed",0);
+    if(o.hasKey("screenshot")){
+      JSONArray screenshot=o.getJSONArray("screenshot");
+      for(int i=0;i<screenshot.size();i++){
+        sample_sequence.add(screenshot.getJSONObject(i));
+      }
+      sequence_progress=frameCount;
+    }
+  }
+  
+  void loadScene(){
+    initPhysics();
+    switch(renderer_type){
+      case "PathTracer":renderer=new RayTracer();break;
+      //case "Rasterizer":renderer=new Rasterizer();break;
+      default:renderer=new RayTracer();
+    }
+    int idx=model_path.lastIndexOf("/");
+    loadGLTF(model_path.substring(0,idx+1),model_path.substring(idx+1,model_path.length()));
+  }
+  
+  void applySettings(){
+    if(physics){
+      renderer.player.body.setPosition(position[0],position[1],position[2]);
+    }else{
+      renderer.player.camera.origin.set(position[0],position[1],position[2]);
+    }
+    renderer.player.camera.free=!physics;
+    if(rotation.length==2){
+      renderer.player.camera.rot.rotateLocalY(radians(rotation[0]));
+      renderer.player.camera.rot.rotateX(radians(rotation[1]));
+    }else if(rotation.length==4){
+      renderer.player.camera.rot=new Quaterniond(rotation[0],rotation[1],rotation[2],rotation[3]);
+    }
+    if(renderer instanceof RayTracer){
+      ((RayTracer)renderer).num_reflect=reflection;
+    }
+  }
+}

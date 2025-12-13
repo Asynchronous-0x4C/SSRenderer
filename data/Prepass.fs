@@ -5,13 +5,17 @@ precision highp float;
 uniform vec3 position;
 uniform mat4 p_mvp;
 uniform mat4 mvp;
+uniform mat4 it_model;
 uniform int ID;
 uniform sampler2D t_normal;
+uniform sampler2D t_albedo;
 uniform bool normal_texture;
+uniform bool albedo_texture;
 
 layout (location = 0) out vec4 out_ID;
 layout (location = 1) out vec4 out_normal;
-layout (location = 2) out vec4 out_motion;
+layout (location = 2) out vec4 out_position;
+layout (location = 3) out vec4 out_motion;
 
 in vec4 w_position;
 in vec3 w_normal;
@@ -29,8 +33,9 @@ void main(){
   out_ID=vec4(float(ID),w_uv,0.0);
   float s=sign(dot(w_normal,position-w_position.xyz));
   out_normal=vec4((normal_texture?GetNormal():w_normal)*s,(s+1.0)*0.5);
-  vec4 prev=p_mvp*w_position;
-  vec4 curr=mvp*w_position;
+  out_position=vec4(w_position.xyz/w_position.w,1.0);
+  vec4 prev=p_mvp*(w_position*it_model);
+  vec4 curr=mvp*(w_position*it_model);
   prev/=prev.w;
   curr/=curr.w;
   out_motion=vec4((curr.xy-prev.xy)*0.5,1.0,1.0);

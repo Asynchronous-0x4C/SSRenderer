@@ -16,6 +16,7 @@ class RayTracer extends Renderer{
   Texture depth;
   FloatTexture ID;
   FloatTexture normal;
+  FloatTexture position;
   FloatTexture motion;
   
   FrameBuffer main_pass;
@@ -81,10 +82,13 @@ class RayTracer extends Renderer{
     normal=new FloatTexture();
     normal.load();
     
+    position=new FloatTexture();
+    position.load();
+    
     motion=new FloatTexture();
     motion.load();
     
-    prepass.load(ID,normal,motion);
+    prepass.load(ID,normal,position,motion);
     prepass.unbind();
     
     main_pass=new FrameBuffer();
@@ -129,6 +133,7 @@ class RayTracer extends Renderer{
     rnd=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     tx=new Buffer(GL4.GL_SHADER_STORAGE_BUFFER);
     int[] r=new int[width*height];
+    randomSeed(settings.seed);
     for(int i=0;i<r.length;i++){
       r[i]=round(random(-Integer.MIN_VALUE,Integer.MAX_VALUE));
     }
@@ -290,8 +295,8 @@ class RayTracer extends Renderer{
     raytrace.program.set_i32("num_reflect",num_reflect);
     hdri.activate(GL4.GL_TEXTURE0);
     raytrace.program.set_i32("hdri",0);
-    depth.activate(GL4.GL_TEXTURE1);
-    raytrace.program.set_i32("depth",1);
+    position.activate(GL4.GL_TEXTURE1);
+    raytrace.program.set_i32("position",1);
     normal.activate(GL4.GL_TEXTURE2);
     raytrace.program.set_i32("normal",2);
     ID.activate(GL4.GL_TEXTURE3);
@@ -486,5 +491,5 @@ class AABB{
 }
 
 int sign(float x){
-  return x<-1e-5?-1:x>1e-5?1:0;
+  return x<=-Float.MIN_VALUE?-1:x>=Float.MIN_VALUE?1:0;
 }

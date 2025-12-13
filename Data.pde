@@ -77,6 +77,7 @@ void loadGLTF(String base,String name){
   for(NodeModel node:gltfModel.getSceneModels().get(0).getNodeModels()){
     traverseNodeGLTF(node,new Matrix4d().set(new float[]{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}));
   }
+  main_cache.waitFuture();
   println("Loading glTF takes "+(System.nanoTime()-nanos)/1000_000+"ms");
   if(renderer instanceof RayTracer){
     ((RayTracer)renderer).reloadVertices();
@@ -458,10 +459,10 @@ class GLTFMaterial extends Material{
     name=mat.getName();
     
     albedo=new MaterialParam<>(new Vector3f(mat.getBaseColorFactor()));
-    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->albedo.setTexture(cache.get(t.getImageModel())));
+    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),albedo));
     
     normal=new MaterialParam<>(new Vector3f());
-    Optional.ofNullable(mat.getNormalTexture()).ifPresent(s->normal.setTexture(cache.get(s.getImageModel(),GL4.GL_COMPRESSED_RGBA_BPTC_UNORM)));
+    Optional.ofNullable(mat.getNormalTexture()).ifPresent(s->cache.getAsync(s.getImageModel(),normal,GL4.GL_COMPRESSED_RGBA_BPTC_UNORM));
     
     Vector3f spec=mat.getExtensions()!=null?
                     mat.getExtensions().containsKey("KHR_materials_specular")?
@@ -469,13 +470,13 @@ class GLTFMaterial extends Material{
                     new Vector3f(0.5):
                   new Vector3f(0.5);
     specular=new MaterialParam<>(spec);
-    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->specular.setTexture(cache.get(t.getImageModel())));
+    Optional.ofNullable(mat.getBaseColorTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),specular));
     
     emission=new MaterialParam<>(new Vector3f(mat.getEmissiveFactor()));
-    Optional.ofNullable(mat.getEmissiveTexture()).ifPresent(t->emission.setTexture(cache.get(t.getImageModel())));
+    Optional.ofNullable(mat.getEmissiveTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),emission));
     
-    metallic_roughness=new MaterialParam<>(new Vector2f(mat.getMetallicFactor(),mat.getRoughnessFactor()));//firefly issue
-    Optional.ofNullable(mat.getMetallicRoughnessTexture()).ifPresent(t->metallic_roughness.setTexture(cache.get(t.getImageModel())));
+    metallic_roughness=new MaterialParam<>(new Vector2f(mat.getMetallicFactor(),mat.getRoughnessFactor()));
+    Optional.ofNullable(mat.getMetallicRoughnessTexture()).ifPresent(t->cache.getAsync(t.getImageModel(),metallic_roughness));
     
     IOR=new MaterialParam<>(new Texture().load(1,1,new byte[]{-1,-1,-1,-1}),getExtensionFactor(mat,"KHR_materials_ior","ior",1));
     transmission=new MaterialParam<>(getExtensionFactor(mat,"KHR_materials_transmission","transmissionFactor",0));

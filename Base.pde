@@ -111,7 +111,7 @@ class DefaultPlayer extends Pawn{
     //transform.setTransform(1.69105,2.0,36.1304);
     transform.setTransform(0,1,0);
     camera=new Camera();
-    camera.free=false;
+    //camera.free=false;
     camera.setPerspective(radians(70), 16.0/9.0, 0.1, 1000.0);
     
     capsule=new PlayerCapsule((DxSpace)space,0.3,1);
@@ -131,7 +131,7 @@ class DefaultPlayer extends Pawn{
   void update(){
     DVector3 pos=new DVector3(body.getPosition());
     pos.add1(capsule.getLength()*0.5+capsule.getRadius());
-    camera.origin.set(pos.toFloatArray());
+    if(!camera.free)camera.origin.set(pos.toFloatArray());
     camera.update();
     
     Vector3d localTransform=new Vector3d(0,0,0);
@@ -223,6 +223,9 @@ class Camera extends Component{
     if(!clicked&&mousePressed){
       clicked=true;
     }
+    if(main_input.getKeyBoard().getPressedKeys().contains((int)VK_ESCAPE)){
+      clicked=false;
+    }
     if(main_input.isWindowFocused()&&clicked){
       if(cursor){
         cursor=false;
@@ -247,8 +250,8 @@ class Camera extends Component{
       Vector3d localTransform=new Vector3d(0,0,0);
       main_input.getKeyBoard().getPressedKeys().forEach((c)->{
         switch(String.valueOf((char)(int)c).toLowerCase()){
-          case "w":localTransform.sub(0.0,0.0,speed);break;
           case "s":localTransform.add(0.0,0.0,speed);break;
+          case "w":localTransform.sub(0.0,0.0,speed);break;
           case "e":localTransform.add(0.0,speed,0.0);break;
           case "q":localTransform.sub(0.0,speed,0.0);break;
           case "d":localTransform.add(speed,0.0,0.0);break;
@@ -526,10 +529,13 @@ class StaticMesh extends Component{
       prepass_program.set_f32m4("p_mvp", new Matrix4f(p_mvp));
       prepass_program.set_f32m4("model", new Matrix4f(model));
       prepass_program.set_f32m4("it_model", new Matrix4f(model).invert().transpose());
-      material.normal.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE0));
-      prepass_program.set_i32("t_normal",0);
+      material.albedo.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE0));
+      material.normal.getTexture().ifPresent(t->t.activate(GL4.GL_TEXTURE1));
+      prepass_program.set_i32("t_albedo",0);
+      prepass_program.set_i32("t_normal",1);
       prepass_program.set_i32("ID",material_index);
       prepass_program.set_b("normal_texture",material.normal.texture!=null);
+      prepass_program.set_b("albedo_texture",material.albedo.texture!=null);
       prepass_program.apply();
       vertex_array.bind();
       gl.glDrawArrays(GL4.GL_TRIANGLES, 0, vertex_count);
@@ -580,6 +586,8 @@ class TextureCache{
   HashMap<StaticMesh,HashSet<String>>register=new HashMap<>();
   
   HashMap<String,HashSet<MaterialParam>>async_register=new HashMap<>();
+  ArrayList<CompletableFuture>futures=new ArrayList<>();
+  ArrayList<Runnable>tasks=new ArrayList<>();
   
   TextureCache(){
     put("__base-albedo__",new BindlessTexture().load(1,1,new byte[]{-1,-1,-1,-1}));
@@ -610,7 +618,7 @@ class TextureCache{
   }
   
   Texture get(ImageModel im,int format){
-    String name=im.getName();long l=System.nanoTime();
+    String name=im.getName();
     if(has(name)){
       return getCache(name);
     }else{
@@ -620,7 +628,7 @@ class TextureCache{
         imageData.get(data);
         BufferedImage bi=ImageIO.read(new ByteArrayInputStream(data));
         int w=bi.getWidth();
-        int h=bi.getHeight();println(name+": "+((System.nanoTime()-l)/1_000_000)+"ms");
+        int h=bi.getHeight();
         return put(name,new BindlessTexture(format).load(w,h,getRGB(bi)));
       }catch(Exception e){
         return null;
@@ -629,6 +637,10 @@ class TextureCache{
   }
   
   void getAsync(ImageModel im,MaterialParam p){
+    getAsync(im,p,GL4.GL_COMPRESSED_RGBA);
+  }
+  
+  void getAsync(ImageModel im,MaterialParam p,int format){
     String name=im.getName();
     if(has(name)){
       p.setTexture(getCache(name));
@@ -636,35 +648,48 @@ class TextureCache{
       if(!async_register.containsKey(name)){
         async_register.put(name,new HashSet<>());
         async_register.get(name).add(p);
-        CompletableFuture.supplyAsync(()->{
-          try{
-            ByteBuffer imageData=im.getImageData();
-            byte[] data=new byte[imageData.remaining()];
-            imageData.get(data);
-            BufferedImage bi=ImageIO.read(new ByteArrayInputStream(data));
-            int w=bi.getWidth();
-            int h=bi.getHeight();
-            return Optional.ofNullable(new TexData(w,h,getRGB(bi)));
-          }catch(Exception e){
-            e.printStackTrace();
-          }
-          return Optional.ofNullable(null);
-        }).thenAccept(t->{
-          t.ifPresent(tx->{
-            TexData tex_data=(TexData)tx;
-            tasks.add(()->{
-              Texture texture=new BindlessTexture().load(tex_data.w,tex_data.h,tex_data.b);
-              put(name,texture);
-              async_register.get(name).forEach(mp->{
-                mp.setTexture(texture);
+        futures.add(
+          CompletableFuture.supplyAsync(()->{
+            long l=System.nanoTime();
+            try{
+              ByteBuffer imageData=im.getImageData();
+              byte[] data=new byte[imageData.remaining()];
+              imageData.get(data);
+              BufferedImage bi=ImageIO.read(new ByteArrayInputStream(data));
+              int w=bi.getWidth();
+              int h=bi.getHeight();
+              println(name+": "+((System.nanoTime()-l)/1_000_000)+"ms");
+              return Optional.ofNullable(new TexData(w,h,getRGB(bi)));
+            }catch(Exception e){
+              e.printStackTrace();
+            }
+            return Optional.ofNullable(null);
+          }).thenAccept(t->{
+            t.ifPresent(tx->{
+              TexData tex_data=(TexData)tx;
+              tasks.add(()->{
+                Texture texture=new BindlessTexture(format).load(tex_data.w,tex_data.h,tex_data.b);
+                put(name,texture);
+                async_register.get(name).forEach(mp->{
+                  mp.setTexture(texture);
+                });
               });
             });
-          });
-        });
+          })
+        );
       }else{
         async_register.get(name).add(p);
       }
     }
+  }
+  
+  void waitFuture(){
+    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    while(!tasks.isEmpty()){
+      tasks.get(0).run();
+      tasks.remove(0);
+    }
+    futures.clear();
   }
   
   Texture put(String name,Texture t){

@@ -33,14 +33,13 @@ GL4 gl;
 
 Obj object;
 Profiler profiler;
+Settings settings;
 
 Renderer renderer;
 
 Input main_input;
 
 TextureCache main_cache;
-
-java.util.List<Runnable>tasks;
 
 DWorld world;
 DSpace space;
@@ -55,7 +54,6 @@ static {
 void setup() {
   size(1280, 720, P2D);
   //fullScreen(P2D);
-  System.loadLibrary("renderdoc");
   frameRate(75);
   windowTitle("Signal");
   gl = (GL4)((PJOGL)((PGraphicsOpenGL)g).pgl).gl;
@@ -69,7 +67,6 @@ void setup() {
   main_input.getKeyBoard().addKeyBind("Matrix",(int)VK_Z);
   main_cache=new TextureCache();
   profiler=new Profiler();
-  tasks=Collections.synchronizedList(new ArrayList<>());
   println(GLProfile.getDefault());
   //renderer=new Renderer();
   //loadObj();
@@ -78,28 +75,10 @@ void setup() {
 void draw() {
   background(30);
   if(frameCount==1){
-    initPhysics();
-    renderer=new RayTracer();
-    //renderer=new Rasterizer();
-    //loadObj("/data/models/mats/","mats.obj");
-    //loadGLTF("/data/models/Exit8/","Exit8.glb");
-    //loadGLTF("/data/models/suiban/","suiban.glb");
-    //loadGLTF("/data/models/demo/","demo.glb");
-    //loadGLTF("/data/models/demo2/","demo2_simple.glb");
-    //loadGLTF("/data/models/demo2/","demo2.glb");
-    //loadGLTF("/data/models/sibenik/","sibenik.glb");
-    //loadGLTF("/data/models/sponza-gltf-pbr/","sponza.glb");
-    //loadGLTF("/data/models/glass/","glass.glb");
-    loadPreset("./data/presets/glass.json");
+    settings=new Settings(sketchPath("settings.json"));
+    settings.loadScene();
+    settings.applySettings();
     return;
-  }
-  synchronized(tasks){
-    for(int i=0;i<3;i++){
-      if(!tasks.isEmpty()){
-        tasks.get(0).run();
-        tasks.remove(0);
-      }
-    }
   }
   if(future!=null){
     try{
@@ -112,7 +91,7 @@ void draw() {
   renderer.update();
   profiler.end("update");
   //need to optimize physics
-  //future=CompletableFuture.runAsync(()->stepPhysics());
+  if(settings.physics)future=CompletableFuture.runAsync(()->stepPhysics());
   profiler.start("draw");
   renderer.display();
   profiler.end("draw");
@@ -123,7 +102,7 @@ void draw() {
   //line(width*0.5,height*0.5-10,width*0.5,height*0.5+10);
   //line(width*0.5+10,height*0.5,width*0.5-10,height*0.5);
   //profiler.display();
-  if(sample_sequence.size()==0){
+  if(settings.sample_sequence.size()==0){
     fill(255,0,255);
     text("frameRate: "+nf(frameRate,0,1),105,15);
     if(renderer instanceof RayTracer){
@@ -136,43 +115,49 @@ void draw() {
   }
   if(main_input.getKeyBoard().getBindedInput("Matrix")){
     println(renderer.player.camera.origin);
-    println(renderer.player.camera.rot.get(new AxisAngle4d()));
+    println(renderer.player.camera.rot);
   }
   main_input.update();
-  if(sample_sequence.size()>0){
-    String type=sample_sequence.get(0).getString("type");
+  if(settings.sample_sequence.size()>0){
+    String type=settings.sample_sequence.get(0).getString("type");
     switch(type){
       case "temporal":
         if(!((RayTracer)renderer).move){
           ((RayTracer)renderer).move=true;
-          sequence_progress=frameCount;
+          settings.sequence_progress=frameCount;
         }
         break;
       case "accum":
         if(((RayTracer)renderer).move){
           ((RayTracer)renderer).move=false;
           ((RayTracer)renderer).num_iterations=0;
-          sequence_progress=frameCount+2;
+          settings.sequence_progress=frameCount+1;
           delay(100);
         }
         break;
     }
-    int sample=sample_sequence.get(0).getInt("sample");
-    if(frameCount-sequence_progress==sample){
+    int sample=settings.sample_sequence.get(0).getInt("sample");
+    if(frameCount-settings.sequence_progress==sample){
       String host="PC";
       try {
           host=InetAddress.getLocalHost().getHostName();
       }catch (Exception e) {
           e.printStackTrace();
       }
-      save("./data/presets/result/"+host+"-"+model_name+"-"+type+sample+".png");
-      sequence_progress=frameCount;
-      sample_sequence.remove(0);
+      save("./data/presets/result/"+host+"-"+settings.model_name+"-"+type+sample+".png");
+      settings.sequence_progress=frameCount;
+      settings.sample_sequence.remove(0);
     }
   }
 }
 
 void windowResized(){
+}
+
+void keyPressed(){
+  if(key==ESC){
+    key=0;
+  }
 }
 
 void exit(){
@@ -234,26 +219,4 @@ void collide(){
 
 float astep(double d,double ep){
   return java.lang.Math.abs(d)<=ep?0:1;
-}
-
-ArrayList<JSONObject>sample_sequence=new ArrayList<>();
-int sequence_progress=0;
-String model_name;
-
-void loadPreset(String path){
-  JSONObject o=loadJSONObject(path);
-  String model=o.getString("model");
-  int idx=model.lastIndexOf("/");
-  model_name=model.substring(idx+1,model.length()).replace(".glb","");
-  loadGLTF(model.substring(0,idx+1),model.substring(idx+1,model.length()));
-  JSONArray pos=o.getJSONArray("position");
-  renderer.player.camera.origin.set(new Vector3d(pos.getFloat(0),pos.getFloat(1),pos.getFloat(2)));
-  JSONArray rot=o.getJSONArray("rotation");
-  renderer.player.camera.rot.rotateLocalY(radians(rot.getFloat(0)));
-  renderer.player.camera.rot.rotateX(radians(rot.getFloat(1)));
-  JSONArray screenshot=o.getJSONArray("screenshot");
-  for(int i=0;i<screenshot.size();i++){
-    sample_sequence.add(screenshot.getJSONObject(i));
-  }
-  sequence_progress=frameCount;
 }

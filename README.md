@@ -3,7 +3,7 @@ Processing4.3で制作したレンダラー
 
 [Release](https://github.com/Asynchronous-0x4C/SSRenderer/releases)から.exeファイルをダウンロードできます。
 
-パストレーサーの実装は[こちら](https://github.com/Asynchronous-0x4C/SSRenderer/blob/v1.0/data/PathTracing.fs)
+パストレーサーの実装は[こちら](https://github.com/Asynchronous-0x4C/SSRenderer/blob/main/data/PathTracing.fs)
 
 ## How to use
 Windowsの場合、[Release](https://github.com/Asynchronous-0x4C/SSRenderer/releases)にある.exeを実行することができます。
@@ -42,7 +42,7 @@ Windowsの場合、[Release](https://github.com/Asynchronous-0x4C/SSRenderer/rel
 5. レンダラーを起動すると、指定したシーンが読み込まれる
 
 ## Scene file
-シーンファイルの記法
+シーンファイルの記法(modelプロパティのみ必須)
 ```jsonc
 {
   "model":"スケッチ又は.exeからのglbファイルへの相対パス",
@@ -64,7 +64,7 @@ Windowsの場合、[Release](https://github.com/Asynchronous-0x4C/SSRenderer/rel
 ```
 
 ## Setting file
-設定ファイルの記法
+設定ファイルの記法(sceneプロパティのみ必須)
 ```jsonc
 {
   "scene":"スケッチ又は.exeからのシーンファイルへの相対パス",
